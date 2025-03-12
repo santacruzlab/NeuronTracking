@@ -16,31 +16,31 @@ def get_sessions(subj: str):
 	#for sorting filenames
 	
 	if subj == 'Mouse1':
-		sessions = [r"Mouse1\AL032\2019-11-21\Probe0\1",
-			  r"Mouse1\AL032\2019-11-22\Probe0\1"]
+		sessions = [r"Mouse1/AL032/2019-11-21/Probe0/1",
+			  r"Mouse1/AL032/2019-11-22/Probe0/1"]
 		
 	if subj == 'Mouse2':
-		sessions = [r"Mouse2\JF067\2022-02-14\Probe0\4",
-			  r"Mouse2\JF067\2022-02-15\Probe0\5"]
+		sessions = [r"Mouse2/JF067/2022-02-14/Probe0/4",
+			  r"Mouse2/JF067/2022-02-15/Probe0/5"]
 		
 	if subj == 'Mouse3':
-		sessions = [r"Mouse3\AV008\2022-03-12\Probe0\IMRO_1",
-			  r"Mouse3\AV008\2022-03-13\Probe0\IMRO_1"]
+		sessions = [r"Mouse3/AV008/2022-03-12/Probe0/IMRO_1",
+			  r"Mouse3/AV008/2022-03-13/Probe0/IMRO_1"]
 		
 	if subj == 'Mouse4':
-		sessions = [r"Mouse4\EB019\2022-07-21\Probe0\1",
-			  r"Mouse4\EB019\2022-07-22\Probe0\1"]
+		sessions = [r"Mouse4/EB019/2022-07-21/Probe0/1",
+			  r"Mouse4/EB019/2022-07-22/Probe0/1"]
 		
 	if subj == 'Mouse5':
-		sessions = [r"Mouse5\CB016\2021-09-28\Probe0\1",
-			  r"Mouse5\CB016\2021-09-29\Probe0\1"]
+		sessions = [r"Mouse5/CB016/2021-09-28/Probe0/1",
+			  r"Mouse5/CB016/2021-09-29/Probe0/1"]
 		
 	return sessions
 
 
 def parse_unit(full_unit_path: str):
 	"""
-	Parse the unit path  >> "root\\Mouse1\\AL032\\2019-11-21\\Probe0\\1\\RawWaveforms\\Unit0_RawSpikes.npy"
+	Parse the unit path  >> "root//Mouse1//AL032//2019-11-21//Probe0//1//RawWaveforms//Unit0_RawSpikes.npy"
 		date >> 2019-11-21 >> 20191121
 		unit_code >> 0
 	"""
@@ -202,9 +202,9 @@ def main(subjects):
 subjects = ["Mouse1","Mouse2","Mouse3","Mouse4","Mouse5"]
 num_sessions = 2
 
-root = r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\UnitMatch\Data"
+root = r"/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects/neuron_tracking/example_data"
 
-save_out_folder = r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\Cole Processed Data"
+save_out_folder = r"/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects/neuron_tracking/NeuronTracking/data"
 
 main(subjects)
 
@@ -218,8 +218,8 @@ xx
 #%% To check waveforms
 import pandas as pd
 import numpy as np
-metadata = pd.read_csv(r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\Cole Processed Data\Mouse1\waveforms_metadata.csv")
-a=np.load(r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\Cole Processed Data\Mouse1\waveforms.npy")
+metadata = pd.read_csv(r"/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects/neuron_tracking/NeuronTracking/data/Mouse1/waveforms_metadata.csv")
+a=np.load(r"/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects/neuron_tracking/NeuronTracking/data/Mouse1/waveforms.npy")
 
 num_plots = 25
 
@@ -234,3 +234,4 @@ for i in range(num_plots):
 
 
 # to get a specific unit, i think its metadata["unit_code"]].loc[unitcode]
+# %%
