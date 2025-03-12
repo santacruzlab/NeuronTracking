@@ -74,49 +74,64 @@ def parse_unit(full_unit_path: str):
 
 
 
+# def find_good_units(session_path):
+# 	
+# 	data = mat73.loadmat(os.path.join(session_path,'PreparedData.mat'))
+# 	
+# 	good_clusters_idxs = data['clusinfo']['Good_ID'].astype(bool) #get idxs of good clusters
+
+# 	good_clusters = data['clusinfo']['cluster_id'][good_clusters_idxs] #get good clusters
+# 	
+# 	good_clusters_chs = data['clusinfo']['ch'][good_clusters_idxs] #get the good clusters' chs
+# 	
+# # 	print(len(good_clusters_idxs))
+# # 	print(len(data['clusinfo']['ch']))
+# # 	print(good_clusters_chs)
+
+# 	return good_clusters, good_clusters_chs.astype(int)
+
+
+
 def find_good_units(session_path):
 	
+	df = pd.read_csv(os.path.join(session_path,'cluster_group.tsv'), sep='\t', skiprows = 0)
+	unit_label = df.values
 	data = mat73.loadmat(os.path.join(session_path,'PreparedData.mat'))
-	
-	good_clusters_idxs = data['clusinfo']['Good_ID'].astype(bool) #get idxs of good clusters
 
-	good_clusters = data['clusinfo']['cluster_id'][good_clusters_idxs] #get good clusters
 	
-	good_clusters_chs = data['clusinfo']['ch'][good_clusters_idxs] #get the good clusters' chs
+	tmp_idx = np.argwhere(unit_label[:,1] == 'good')
 	
-# 	print(len(good_clusters_idxs))
-# 	print(len(data['clusinfo']['ch']))
-# 	print(good_clusters_chs)
+	good_clusters_chs = data['clusinfo']['ch'][tmp_idx] #get the good clusters' chs
+
+	good_clusters = unit_label[tmp_idx, 0]
 
 	return good_clusters, good_clusters_chs.astype(int)
 	
 
-def find_maximal_wf(wfs):
-	
-	#shape of wfs is (time x recording sites x halves of recording session)
-	
-	#first, avg together the two halves of session
-	wfs = np.mean(wfs,axis=-1)
-	
-	wf_max = np.max(abs(wfs),axis=0) #get max voltage value along time axis for each waveform
-	max_ch = np.argmax(wf_max)
-	max_wf = wfs[:,max_ch] #get wf from site which has the largest max voltage
-	
-	return max_wf,max_ch
+# def find_maximal_wf(wfs):
+# 	
+# 	#shape of wfs is (time x recording sites x halves of recording session)
+# 	
+# 	#first, avg together the two halves of session
+# 	wfs = np.mean(wfs,axis=-1)
+# 	
+# 	wf_max = np.max(abs(wfs),axis=0) #get max voltage value along time axis for each waveform
+# 	max_ch = np.argmax(wf_max)
+# 	max_wf = wfs[:,max_ch] #get wf from site which has the largest max voltage
+# 	
+# 	return max_wf,max_ch
 
 
-def make_metadata(unit_paths, chs):	
+def make_metadata(unit_codes, dates, chs):	
 	
 	result = pd.DataFrame(columns=['date','unit_code','channel'])
 	
-	assert len(unit_paths) == len(chs)
+	assert len(unit_codes) == len(chs) == len(dates)
 			
-	for i in range(len(unit_paths)):
+	for i in range(len(unit_codes)):
 		
-		date, unit_code = parse_unit(unit_paths[i])
-		
-		result.at[i, 'date'] =  date
-		result.at[i, 'unit_code'] =  unit_code
+		result.at[i, 'date'] =  dates[i]
+		result.at[i, 'unit_code'] =  unit_codes[i]
 		result.at[i, 'channel'] =  chs[i]
 	
 	return result
@@ -136,7 +151,8 @@ def save_data(subj, metadata: pd.DataFrame, waveforms: np.ndarray) -> None:
 def read_data(subj):
 
 	waveforms = []
-	unit_paths = []
+	unit_codes = []
+	dates = []
 	chs_ = []
 	
 	for session in range(num_sessions):
@@ -144,32 +160,30 @@ def read_data(subj):
 		session_path = os.path.join(root,get_sessions(subj)[session]) #get path to folder which has all waveform files for all units
 		
 		wf_path = os.path.join(session_path,'RawWaveforms')
-		wf_files = os.listdir(wf_path) #get filenames of all waveform files for all units
-		
 		units,chs = find_good_units(session_path)
+		
+		for session_half in range(2):
+			
+			for unit,ch in zip(units,chs):
 	
-		for unit,ch in zip(units,chs):
+				full_unit_path = os.path.join(wf_path,f'Unit{unit[0]}_RawSpikes.npy') #get path to current good unit waveform file
+				wf=np.load(full_unit_path)
+				waveforms.append(wf[:,ch,session_half])
+				
+				date, unit_code = parse_unit(full_unit_path)
+				dates.append(date + f'-{session_half}') #append date with session half labeling
+				chs_.append(ch)
+				unit_codes.append(unit_code)
 			
-			full_unit_path = os.path.join(wf_path,wf_files[unit]) #get path to current good unit waveform file
-			
-			wf=np.load(full_unit_path)
-			
-# 			max_wf,ch = find_maximal_wf(wf)     ###my method using biggest peak to find ch
-			max_wf = wf[:,ch,0]                 ###uses their info on chs of good units (good clusters)
-			
-			waveforms.append(max_wf)
-			unit_paths.append(full_unit_path)
-			chs_.append(ch)
-			
-	return waveforms, unit_paths, chs_
+	return waveforms, unit_codes, dates, chs_
 
 
 def main(subjects):
 	
 	for subj in subjects:
 		
-		waveforms, unit_paths, chs = read_data(subj)
-		metadata = make_metadata(unit_paths, chs)
+		waveforms, unit_codes, dates, chs = read_data(subj)
+		metadata = make_metadata(unit_codes, dates, chs)
 		save_data(subj, metadata, waveforms)
 
 
@@ -200,15 +214,23 @@ main(subjects)
 	
 
 
-
+xx
 #%% To check waveforms
+import pandas as pd
+import numpy as np
+metadata = pd.read_csv(r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\Cole Processed Data\Mouse1\waveforms_metadata.csv")
+a=np.load(r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\Cole Processed Data\Mouse1\waveforms.npy")
 
-a=np.load(r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\Cole Processed Data\Mouse5\waveforms.npy")
-
-num_plots = 3
+num_plots = 25
 
 from matplotlib import pyplot as plt
 for i in range(num_plots):
 	fig,ax=plt.subplots()
 	ax.plot(a[i,:])
+	ax.set_xlabel('samples')
+	ax.set_ylabel('voltage')
+# 	ax.set_title('asdlkfj')
+	ax.set_title(f'unit_code: {str(metadata.iloc[i]["unit_code"])}, ch: {str(metadata.iloc[i]["channel"])}')
 
+
+# to get a specific unit, i think its metadata["unit_code"]].loc[unitcode]
