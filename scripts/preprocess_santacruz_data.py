@@ -412,14 +412,31 @@ class BMI:
             })
         
 
+def BMI_data_pattern(unit: str):
+    """
+    Parse the unit_code.
+    The input should be like "airp20221203_04_te123_63a".
+    What we need is 1) the session (20221203), 2) the unit_code (63a), and 3) the channel number (63).
+    """
+    
+    pattern = r'[a-z]{4}([0-9]{8})_[0-9]{2}_te[0-9]*_(([0-9]*)[a-d])'
+    m = re.match(pattern, unit)
+    date = m.group(1)
+    unit_code = m.group(2)
+    channel = int(m.group(3))
+    
+    return date, unit_code, channel
+        
+
 def read_BMI_data(subj: str) -> tuple[list[str], np.ndarray]:
     """
     Read all the data recorded by the Grapevine NIP system. 
     To accelerate the process, all spikes were preprocessed using _generate_nev_output().
+   
     
     :param subj: the name of the subject. Usually a four-letter word, e.g., airp, braz.
     
-    :return unit_id: the session ID + channel ID + unit code. The list will be parsed later using unit_code_pattern().
+    :return metadata: preprocessed metadata, including the session, channel, and unit code.
     :return waveforms: a 2D array of the waveforms with a shape of (# waveforms, # sample per waveform).
     
     """
@@ -440,27 +457,7 @@ def read_BMI_data(subj: str) -> tuple[list[str], np.ndarray]:
     if len(unit_id) != waveforms.shape[0]:
         raise ValueError('Inconsistent shape between the metadata and the waveforms')
     
-    return unit_id, waveforms
-
-
-def BMI_data_pattern(unit: str):
-    """
-    Parse the unit_code.
-    The input should be like "airp20221203_04_te123_63a".
-    What we need is 1) the session (20221203), 2) the unit_code (63a), and 3) the channel number (63).
-    """
-    
-    pattern = r'[a-z]{4}([0-9]{8})_[0-9]{2}_te[0-9]*_(([0-9]*)[a-d])'
-    m = re.match(pattern, unit)
-    date = m.group(1)
-    unit_code = m.group(2)
-    channel = int(m.group(3))
-    
-    return date, unit_code, channel
-
-
-def make_metadata(subj: str, unit_id: list[str]) -> pd.DataFrame:
-
+    # Parse the metadata
     result = pd.DataFrame(columns=['date','unit_code','channel'])
     for i in range(len(unit_id)):
         date, unit_code, channel = BMI_data_pattern(unit_id[i])
@@ -481,10 +478,13 @@ def make_metadata(subj: str, unit_id: list[str]) -> pd.DataFrame:
         result.at[i, 'date'] =  date
         result.at[i, 'unit_code'] =  unit_code
         result.at[i, 'channel'] =  channel
-        
-    result = result[result['channel'] != 0] # Removing channel # = 0.
-
-    return result
+    
+    keep = np.where(result['channel'] != 0)[0] # 
+    
+    metadata = result.iloc[keep]
+    waveforms = waveforms[keep]
+    
+    return metadata, waveforms
 
 
 def save_data(subj, metadata: pd.DataFrame, waveforms: np.ndarray) -> None:
@@ -498,14 +498,13 @@ def save_data(subj, metadata: pd.DataFrame, waveforms: np.ndarray) -> None:
     return 
 
 
-def main():
+def preprocess_BMI():
     
     for subj in SUBJECT:
-        unit_ids, waveforms = read_BMI_data(subj)
-        metadata = make_metadata(subj, unit_ids)
+        metadata, waveforms = read_BMI_data(subj)
         save_data(subj, metadata, waveforms)
 
 
 if __name__ == '__main__':
-    main()
+    preprocess_BMI()
 
