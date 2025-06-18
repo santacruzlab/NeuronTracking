@@ -45,7 +45,6 @@ def parse_unit(full_unit_path: str):
         unit_code >> 0
     """
     
-    # Get unit code from base file name
     fname = os.path.basename(full_unit_path)
     pattern = r'Unit([0-9]*)_RawSpikes.npy'
     m = re.match(pattern, fname)

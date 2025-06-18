@@ -12,15 +12,23 @@ import random
 import numpy as np
 import pandas as pd
 import datetime
+from matplotlib import pyplot as plt
 from collections import Counter, defaultdict
 
+# SUBJECT = "airp"
+SUBJECT = 'Mouse1'
 
-SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
-PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
+
+# SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_FOLDER = r"C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\NeuronTracking\src\trackMEA"
+# PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
+PROJECT_FOLDER = SCRIPT_FOLDER
 DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
 RESULT_FOLDER = os.path.join(PROJECT_FOLDER, 'result')
 DUMMY_NUMBER = 1e7 
-USEFUL_N_UNIT = 3
+USEFUL_N_UNIT = 2 # 3
+
+savedir = r'C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking'
 
 pd.options.mode.chained_assignment = None  # Suppresses the warning
 
@@ -32,11 +40,21 @@ def parse_unit(unit: str):
     :param unit: The unit code in the format of 'date_channel_unit_code'.
     :return: A tuple containing date, channel, and unit code.
     """
-    pattern = r'([0-9]{8})_(([0-9]*)[a-d])' 
+    
+    if "Mouse" in SUBJECT: #example unit: 20191121-0_22_536
+        pattern = r'([0-9]{8}-[0-9])_([0-9]*)_([0-9]*)'
+        
+        date = re.search(pattern, unit).group(1) # Like 20191121-0
+        unit_code = re.search(pattern, unit).group(3) # Like 536
+        channel = re.search(pattern, unit).group(2) # Like 22
+        
+        
+    else: #airp and braz. example unit: 20191121_22a
+        pattern = r'([0-9]{8})_(([0-9]*)[a-d])' 
 
-    date = re.search(pattern, unit).group(1) # Like 20230101
-    unit_code = re.search(pattern, unit).group(2) # Like 22a
-    channel = re.search(pattern, unit).group(3) # Like 22
+        date = re.search(pattern, unit).group(1) # Like 20191121
+        unit_code = re.search(pattern, unit).group(2) # Like 22a
+        channel = re.search(pattern, unit).group(3) # Like 22
     
     return date, channel, unit_code
 
@@ -67,7 +85,7 @@ class Tracking:
         
         self.subject = subject
         self.data_dir = os.path.join(DATA_FOLDER, self.subject)
-        
+        print(self.data_dir)
         if not os.path.exists(self.data_dir):
             raise ValueError('Data for this subject not existed.')
             
@@ -87,8 +105,11 @@ class Tracking:
         # Construct useful dataframes
         self.useful_df: pd.DataFrame = None
         self.useful_df = self.metadata[self.metadata['channel'].isin(self.channels)]
-        self.useful_df.at[:, 'unit'] = self.useful_df['date'].astype(str) + "_" + self.useful_df['unit_code'].astype(str)
-
+        if "Mouse" in SUBJECT: #example unit: 20191121-0_22_536
+            self.useful_df.at[:, 'unit'] = self.useful_df['date'].astype(str) + "_" + self.useful_df['channel'].astype(str) + "_" + self.useful_df['unit_code'].astype(str)
+        else: #airp and braz. example unit: 20191121_22a
+            self.useful_df.at[:, 'unit'] = self.useful_df['date'].astype(str) + "_" + self.useful_df['unit_code'].astype(str)
+        
         # Extract dates
         self.dates = self.useful_df.date.unique()
 
@@ -101,7 +122,7 @@ class Tracking:
         print(f'[{self.subject}] Calculating similarity thresholds')
         self.threshold = None
         self.threshold_fussy = None
-        self.calc_similarity_threshold()
+        self.calc_similarity_threshold(predetermine=True)
 
         # Obtain cluster information        
         print(f'[{self.subject}] Obtaining cluster information')
@@ -109,8 +130,8 @@ class Tracking:
         self.clusters: pd.DataFrame = None
         self.useful_clusters: pd.DataFrame = None
         self.tuning_params: dict = dict()
-        # self.calc_matched_units()
-        # self.get_clusters()
+        self.calc_matched_units()
+        self.get_clusters()
 
 
     def find_channels(self):
@@ -142,8 +163,13 @@ class Tracking:
         """
         Rescaled similarity metrics
         """
-        maxx = np.max(array[array!=DUMMY_NUMBER])
-        minn = np.min(array[array!=DUMMY_NUMBER])
+        try:
+            maxx = np.max(array[array!=DUMMY_NUMBER])
+            minn = np.min(array[array!=DUMMY_NUMBER])
+        except ValueError:
+            print(array)
+            print(array.shape)
+            raise ValueError
         
         match metric:
             case 'correlation':
@@ -191,8 +217,8 @@ class Tracking:
                 for i in range(len(ch_df)):
                     for j in range(len(ch_df)):
                         sim_temp[i,j] = self.similarity(
-                            ch_df['waveform'].iloc[i],
-                            ch_df['waveform'].iloc[j],
+                            np.squeeze(ch_df['waveform'].iloc[i]),
+                            np.squeeze(ch_df['waveform'].iloc[j]),
                             metric
                         )
                 sim_temp = self.rescale(sim_temp, metric=metric)
@@ -210,7 +236,10 @@ class Tracking:
         """
         Threshold for determining whether units were from same neurons.
         Refer to the get_threshold() function.
+        
         Since the function takes a long time to run, we do not rerun it everytime.
+        Rather, we run it once and then hardcode the resulting threshold within
+        the predetermine block.
         
         If the total similarity between unit A and B > self.threshold,
         then A and B are considered the same units.
@@ -228,11 +257,11 @@ class Tracking:
                     self.threshold = 0.562
                     self.threshold_fussy = 0.008
                 case 'Mouse1':
-                    self.threshold = 0.573
-                    self.threshold_fussy = 0.002
+                    self.threshold = 0.576 # updated 6/16/25 CB      #0.473
+                    self.threshold_fussy = 0.003 # updated 6/16/25 CB       #0.002
                 case 'Mouse2':
-                    self.threshold = 0.636
-                    self.threshold_fussy = 0.004
+                    self.threshold = 0.651 # updated 6/17/25 CB      #0.636
+                    self.threshold_fussy = 0.004 # updated 6/17/25 CB
                 case 'Mouse3':
                     self.threshold = 0.585
                     self.threshold_fussy = 0.002
@@ -329,13 +358,13 @@ class Tracking:
                 name = potential_match_name[k] # Shorthand
                 
                 # Grab the dates for all labels 
-                counts = Counter([parse_unit(n)[0] for n in name], subject=self.subject) 
+                counts = Counter([parse_unit(n)[0] for n in name]) #, subject=self.subject)  idk why the subject thing is there
                 bug_dates = [key for key, value in counts.items() if value > 1]
                 
                 if len(bug_dates) > 0: # Then we will deal with this case
                 
                     # Find where in that potential match (var: name) has repetition
-                    ind_for_potential_match = find_repeated_indices([parse_unit(n)[0] for n in name], subject=self.subject) 
+                    ind_for_potential_match = find_repeated_indices([parse_unit(n)[0] for n in name]) # , subject=self.subject) 
                     
                     # Use a list to collect the indices to be removed
                     ind_to_remove = []
@@ -362,7 +391,7 @@ class Tracking:
         if verify:
             for i in range(len(self.matched_units)):
                 unit = self.matched_units[i]
-                unique_dates = np.unique([parse_unit(u)[0] for u in unit], subject=self.subject) 
+                unique_dates = np.unique([parse_unit(u)[0] for u in unit]) #, subject=self.subject) 
                 if len(unit) > len(unique_dates):
                     print(f'Matched units {i} has conflict units.')
                     print(f'Use self.matched_units[{i}] to debug.')
@@ -547,10 +576,88 @@ class Matched:
 
 
 
-def main():
-    print('Tracking algorithm is running.')
-    a: Tracking = Tracking('airp')
+# def main():
+#     print('Tracking algorithm is running.')
+#     a: Tracking = Tracking(SUBJECT)
 
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()
+
+   
+
+def display_matches(Inst_of_Tracking):
+
+    subject = Inst_of_Tracking.subject
+    units = Inst_of_Tracking.useful_df.unit
+    unique_dates = np.unique([parse_unit(u)[0][:-2] for u in units])
+    
+    unique_units_1sthalf = [] #list of all units for each date. 1st half only
+    unique_units_2ndhalf = [] #list of all units for each date. 2nd half only
+    for i,date in enumerate(unique_dates):
+        # unique_units.append(np.unique([parse_unit(unit)[2] for unit in units if parse_unit(unit)[0] == date+"-0"]))
+        unique_units_1sthalf.append(np.unique([unit for unit in units if date+"-0" == parse_unit(unit)[0]])) #only look at first half units to not double count both halves
+        unique_units_2ndhalf.append(np.unique([unit for unit in units if date+"-1" == parse_unit(unit)[0]]))
+    
+    assert len(unique_units_1sthalf[0])==len(unique_units_2ndhalf[0])
+    assert len(unique_units_1sthalf[1])==len(unique_units_2ndhalf[1])
+    y_coors = np.concat((unique_units_2ndhalf[0],unique_units_2ndhalf[1]))
+    x_coors = np.concat((unique_units_1sthalf[0],unique_units_1sthalf[1]))
+    
+        
+    matching_matrix = np.zeros((len(y_coors),len(x_coors)))
+    
+    
+    for cluster_ID in a.clusters.cluster_ID: #go thru each cluster
+        
+        cluster = Inst_of_Tracking.clusters.neuron.iloc[cluster_ID].df
+        
+        if len(cluster) <2: #if no matches, skip COULD PROBLY JUST USE USEFUL_CLUSTER DF HERE INSTEAD
+            continue
+        
+        for i in range(len(cluster)):
+            
+            unit1 = cluster.unit.iloc[i]
+            
+            if unit1 in x_coors: #find first half unit
+            
+                for j in range(len(cluster)):
+                    
+                    unit2 = cluster.unit.iloc[j]
+                    
+                    if unit1 == unit2:
+                        continue
+                    
+                    if unit2 in y_coors: #find second half unit
+                    
+                        # if both first half and second half units exist, 
+                        # find their indices and fill in that spot on the matrix
+                        
+                        unit1_coor = np.nonzero(x_coors==unit1)[0]
+                        unit2_coor = np.nonzero(y_coors==unit2)[0]
+                        
+                        matching_matrix[unit2_coor,unit1_coor] = 1
+                        
+                        
+    fig,ax=plt.subplots()
+    ax.matshow(matching_matrix,cmap='binary')
+    ax.set_title(subject)
+    
+    fname = f'NeuronTracking_MatchingMatrix_{subject}.npy'
+    np.save(os.path.join(savedir,fname),matching_matrix)
+        
+    
+    
+    
+    
+    
+    
+
+a = Tracking(SUBJECT)
+display_matches(a)
+
+
+
+
+
+        

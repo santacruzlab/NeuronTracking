@@ -9,22 +9,31 @@ Created on Mon Mar  3 18:04:24 2025
 run_GUI = False
 
 root = r'C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking\UnitMatch'
+savedir = r'C:\Users\coleb\Desktop\Santacruz Lab\Neuron Tracking'
 
-# Choose one of the following pairs
-# sess1 = r'Data\Mouse1\AL032\2019-11-21\Probe0\1'
-# sess2 = r'Data\Mouse1\AL032\2019-11-22\Probe0\1'
+subject = 'Mouse1'
 
-# sess1 = r'Data\Mouse2\JF067\2022-02-14\Probe0\4'
-# sess2 = r'Data\Mouse2\JF067\2022-02-15\Probe0\5'
+match subject:
 
-# sess1 = r'Data\Mouse3\AV008\2022-03-12\Probe0\IMRO_1'
-# sess2 = r'Data\Mouse3\AV008\2022-03-13\Probe0\IMRO_1'
+    case 'Mouse1':
+        sess1 = r'Data\Mouse1\AL032\2019-11-21\Probe0\1'
+        sess2 = r'Data\Mouse1\AL032\2019-11-22\Probe0\1'
 
-# sess1 = r'Data\Mouse4\EB019\2022-07-21\Probe0\1'
-# sess2 = r'Data\Mouse4\EB019\2022-07-22\Probe0\1'
+    case 'Mouse2':
+        sess1 = r'Data\Mouse2\JF067\2022-02-14\Probe0\4'
+        sess2 = r'Data\Mouse2\JF067\2022-02-15\Probe0\5'
 
-sess1 = r'Data\Mouse5\CB016\2021-09-28\Probe0\1'
-sess2 = r'Data\Mouse5\CB016\2021-09-29\Probe0\1'
+    case 'Mouse3':
+        sess1 = r'Data\Mouse3\AV008\2022-03-12\Probe0\IMRO_1'
+        sess2 = r'Data\Mouse3\AV008\2022-03-13\Probe0\IMRO_1'
+
+    case 'Mouse4':
+        sess1 = r'Data\Mouse4\EB019\2022-07-21\Probe0\1'
+        sess2 = r'Data\Mouse4\EB019\2022-07-22\Probe0\1'
+
+    case 'Mouse5':
+        sess1 = r'Data\Mouse5\CB016\2021-09-28\Probe0\1'
+        sess2 = r'Data\Mouse5\CB016\2021-09-29\Probe0\1'
 
 
 
@@ -134,6 +143,9 @@ ax.set_xlabel(f'First half\nDay 1{" "*24}Day 2')
 ax.set_xticks([])
 ax.set_yticks([])
 ax.set_title('Matches')
+
+fname = f'UnitMatch_MatchingMatrix_{subject}.npy'
+np.save(os.path.join(savedir,fname),output_threshold)
 
 #%% STEP 6
 if run_GUI:
