@@ -15,17 +15,30 @@ import pickle
 import pandas as pd
 import numpy as np
 
-root = '/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects'
-BMI_FOLDER = os.path.join(root, 'bmi_python')
-PROJECT_FOLDER = os.path.join(root, 'neuron_tracking')
-SCRIPT_FOLDER = os.path.join(PROJECT_FOLDER, 'NeuronTracking')
-NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
-NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
+# root = '/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects'
+# BMI_FOLDER = os.path.join(root, 'bmi_python')
+# PROJECT_FOLDER = os.path.join(root, 'neuron_tracking')
+# SCRIPT_FOLDER = os.path.join(PROJECT_FOLDER, 'NeuronTracking')
+# NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
+# NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
+# FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
+
+# rewritten with (hopefully) universal support.
+SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
+PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
+DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
+RAWDATA_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
+GITHUB_FOLDER = os.path.dirname(PROJECT_FOLDER)
+BMI_FOLDER = os.path.join(GITHUB_FOLDER, 'bmi_python')
+NSX_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
+NS_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
-os.chdir(NSX_FOLDER)
-from brpylib import NsxFile
-os.chdir(NS_FOLDER)
-from nsfile import NSFile
+
+os.chdir(BMI_FOLDER)
+from riglib.blackrock.brpylib import NsxFile
+os.chdir(BMI_FOLDER)
+# from nsfile import NSFile
+from riglib.ripple.pyns.pyns.nsfile import NSFile
 os.chdir(PROJECT_FOLDER)
 from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_ROTATION, BRAZOS_ROTATION
 
@@ -64,15 +77,17 @@ def _generate_nev_output(
 
     for session in all_sessions:
         
-        nev_output = os.path.join(PROJECT_FOLDER, 'data', f'{session}_nev_output.pkl')
-        nev_input = os.path.join(PROJECT_FOLDER, 'data', f'{session}.nev')
-    
+        nev_output = os.path.join(DATA_FOLDER, session, f'{session}_nev_output.pkl')
+        nev_input = os.path.join(DATA_FOLDER, session, f'{session}.nev')
+        
         print(session)
         if not os.path.exists(nev_output):
             if os.path.exists(nev_input):
                 print('Reading...')
                 task = BMI(session)
                 task.load_data()
+                task.read_lfp()
+                print(f'Time in seconds: {task.time_in_sec}')
                 task.extract_waveform()
                 nev_result = task.waveform
             
@@ -122,7 +137,7 @@ class BMI:
         """
         
         self.session = session
-        self.file_prefix = os.path.join(PROJECT_FOLDER, 'data', self.session)
+        self.file_prefix = os.path.join(DATA_FOLDER, session, self.session)
         
         # [Initiate different data files]
         self.ns2file = None
@@ -226,6 +241,8 @@ class BMI:
             self.has_mat = True
         if os.path.exists(self.file_prefix + '_nev_output.pkl'):
             self.has_nev_output = True
+        else:
+            print(f'Warning: {_generate_nev_output.__name__}() has not been run for session {self.session}.')
         if os.path.exists(self.file_prefix + '_KFDecoder.pkl'):
             self.has_decoder = True
 
@@ -268,6 +285,11 @@ class BMI:
         
         if self.has_ns2:
             self.ns2file = NsxFile(self.file_prefix + '.ns2')
+            output = self.ns2file.getdata()
+            self.lfpdata = output['data']
+            self.lfp_fs = int(output['samp_per_s'])   # sampling rate (Hz)
+            self.num_time_samps = output['data_headers'][0]['NumDataPoints']
+            self.time_in_sec = self.num_time_samps/self.lfp_fs # duration of recording (s)
     
             
     @property
