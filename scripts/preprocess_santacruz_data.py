@@ -39,8 +39,9 @@ from riglib.blackrock.brpylib import NsxFile
 os.chdir(BMI_FOLDER)
 # from nsfile import NSFile
 from riglib.ripple.pyns.pyns.nsfile import NSFile
-os.chdir(PROJECT_FOLDER)
+os.chdir(SCRIPT_FOLDER)
 from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_ROTATION, BRAZOS_ROTATION
+os.chdir(PROJECT_FOLDER)
 
 # Constants
 LETTER_CODE = {2.: 'a', 4.: 'b', 8.: 'c', 16.: 'd'}
@@ -59,7 +60,9 @@ SAVEFIG = True
 
 def _generate_nev_output(
         all_sessions: list[str] = AIRPORT_SESSIONS + BRAZOS_SESSIONS,
-        count: bool = True):
+        count: bool = True,
+		input_folder = None,
+		output_folder = None): 
     """
     Generate the nev_output.pkl file for each session.
     """
@@ -68,7 +71,8 @@ def _generate_nev_output(
         
         counts = 0
         for file in sessions:
-            f = os.path.join(PROJECT_FOLDER, 'data', f'{file}_nev_output.pkl')
+            # f = os.path.join(PROJECT_FOLDER, 'data', f'{file}_nev_output.pkl')
+            f = os.path.join(PROJECT_FOLDER, f'{file}_nev_output.pkl')			
             if os.path.exists(f):
                 counts += 1
     
@@ -77,23 +81,39 @@ def _generate_nev_output(
 
     for session in all_sessions:
         
-        nev_output = os.path.join(DATA_FOLDER, session, f'{session}_nev_output.pkl')
-        nev_input = os.path.join(DATA_FOLDER, session, f'{session}.nev')
+        if output_folder:
+            nev_output = os.path.join(output_folder, f'{session}_nev_output.pkl')
+        else:
+            nev_output = os.path.join(DATA_FOLDER, session, f'{session}_nev_output.pkl')
+        
+        if input_folder:
+            nev_input = os.path.join(input_folder, f'{session}.nev')
+        else:
+            nev_input = os.path.join(DATA_FOLDER, session, f'{session}.nev')
+            
         
         print(session)
         if not os.path.exists(nev_output):
             if os.path.exists(nev_input):
                 print('Reading...')
-                task = BMI(session)
+                if input_folder:
+                    task = BMI(session, input_folder)
+                else:
+                    task = BMI(session)
                 task.load_data()
                 task.read_lfp()
-                print(f'Time in seconds: {task.time_in_sec}')
+                # print(f'Time in seconds: {task.time_in_sec}')
                 task.extract_waveform()
                 nev_result = task.waveform
             
                 with open(nev_output, 'wb') as f:
                     pickle.dump(nev_result.to_dict(), f)
-                    print('Saved.')
+                    print(f'{nev_output} saved.')
+                    
+            else: 
+                print('\tno .nev file found')
+        else: 
+            print('\tnev_output already exists')
                     
     if count:
         count_processed_files(all_sessions)
@@ -103,7 +123,7 @@ def _generate_nev_output(
 
 class BMI:
     
-    def __init__(self, session: str):
+    def __init__(self, session: str, input_folder = None):
         
         """
         General guidelines for navigating the files.
@@ -137,7 +157,10 @@ class BMI:
         """
         
         self.session = session
-        self.file_prefix = os.path.join(DATA_FOLDER, session, self.session)
+        if input_folder:
+            self.file_prefix = os.path.join(input_folder, self.session)
+        else:
+            self.file_prefix = os.path.join(DATA_FOLDER, session, self.session)
         
         # [Initiate different data files]
         self.ns2file = None

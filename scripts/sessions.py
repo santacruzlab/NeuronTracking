@@ -10,7 +10,7 @@ AIRPORT_ROTATION = [50] * 3 + [90] * 9 + [310] * 13 + [270] * 9
 BRAZOS_ROTATION = [310] * 11 + [270] * 12 + [50] * 9 + [90] * 12
 
 
-AIRPORT_SESSIONS = [
+AIRPORT_SESSIONS_1 = [ #santacruz2 on storage server
     
     'airp20211202_04_te1598',
     'airp20211205_04_te1609',
@@ -24,7 +24,12 @@ AIRPORT_SESSIONS = [
     'airp20220110_05_te1770',
     'airp20220114_04_te1788',
     'airp20220116_04_te1792',
-    'airp20220119_05_te1807',
+    'airp20220119_05_te1807'
+    
+]
+
+AIRPORT_SESSIONS_2 = [ #santacruz1 on storage server
+    
     'airp20220201_04_te1780',
     'airp20220202_04_te1784',
     'airp20220205_05_te1789',
@@ -50,7 +55,7 @@ AIRPORT_SESSIONS = [
 ]
 
 
-BRAZOS_SESSIONS = [
+BRAZOS_SESSIONS = [ #santacruz3 on storage server
     
     'braz20220315_07_te90',
     'braz20220316_06_te96',
