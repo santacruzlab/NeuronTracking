@@ -55,6 +55,46 @@ AIRPORT_SESSIONS_2 = [ #santacruz1 on storage server
 ]
 
 
+AIRPORT_SESSIONS = [ #santacruz2/santacruz1 on storage server
+    
+    'airp20211202_04_te1598',
+    'airp20211205_04_te1609',
+    'airp20211210_05_te1637',
+    'airp20211216_04_te1674',
+    'airp20211217_04_te1678',
+    'airp20211223_04_te1700',
+    'airp20211224_04_te1704',
+    'airp20220107_04_te1761',
+    'airp20220109_04_te1765',
+    'airp20220110_05_te1770',
+    'airp20220114_04_te1788',
+    'airp20220116_04_te1792',
+    'airp20220119_05_te1807',    
+    'airp20220201_04_te1780',
+    'airp20220202_04_te1784',
+    'airp20220205_05_te1789',
+    'airp20220207_04_te1798', 
+    'airp20220211_05_te1812',
+    'airp20220212_04_te1816',
+    'airp20220213_04_te1820',
+    'airp20220216_04_te1834',
+    'airp20220218_04_te1842',
+    'airp20220221_04_te1846',
+    'airp20220222_05_te1851',
+    'airp20220224_10_te1861',
+    'airp20220303_05_te1887',
+    'airp20220306_04_te1907',
+    'airp20220312_04_te1938',
+    'airp20220313_10_te1948',
+    'airp20220315_04_te1995',
+    'airp20220319_14_te2079',
+    'airp20220322_04_te2103',
+    'airp20220323_04_te2107',
+    'airp20220324_04_te2111',
+    
+]
+
+
 BRAZOS_SESSIONS = [ #santacruz3 on storage server
     
     'braz20220315_07_te90',
