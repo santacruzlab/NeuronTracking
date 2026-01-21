@@ -159,6 +159,7 @@ class BMI:
         self.session = session
         if input_folder:
             self.file_prefix = os.path.join(input_folder, self.session)
+            self.input_folder = input_folder
         else:
             self.file_prefix = os.path.join(DATA_FOLDER, session, self.session)
         
@@ -293,6 +294,10 @@ class BMI:
         if "mat" in file_types and self.has_mat:
             self.matfile = scipy.io.loadmat(self.file_prefix + "_syncHDF.mat")
 
+        # print(self.input_folder)
+        # print(self.file_prefix)
+        # print(self.has_nev_output)
+        
         if "nev_output" in file_types and self.has_nev_output:
             with open(self.file_prefix + "_nev_output.pkl", "rb") as f:
                 self.pklfile = pickle.load(f)
@@ -473,7 +478,7 @@ def BMI_data_pattern(unit: str):
     return date, unit_code, channel
         
 
-def read_BMI_data(subj: str) -> tuple[list[str], np.ndarray]:
+def read_BMI_data(subj: str, input_folder = None) -> tuple[list[str], np.ndarray]:
     """
     Read all the data recorded by the Grapevine NIP system. 
     To accelerate the process, all spikes were preprocessed using _generate_nev_output().
@@ -491,7 +496,11 @@ def read_BMI_data(subj: str) -> tuple[list[str], np.ndarray]:
     sessions = SESSIONS[subj]
 
     for session in sessions:
-        task = BMI(session)
+        if input_folder:
+            task = BMI(session, input_folder)
+        else:
+            task = BMI(session)
+            
         task.load_data(['nev_output'])
         for key, val in task.pklfile['wf'].items():
             unit_id.append(session + '_' + key)
@@ -532,22 +541,27 @@ def read_BMI_data(subj: str) -> tuple[list[str], np.ndarray]:
     return metadata, waveforms
 
 
-def save_data(subj, metadata: pd.DataFrame, waveforms: np.ndarray) -> None:
+def save_data(subj, metadata: pd.DataFrame, waveforms: np.ndarray, output_folder = None) -> None:
     
-    if not os.path.exists(os.path.join(SCRIPT_FOLDER, 'data', subj)):
-        os.makedirs(os.path.join(SCRIPT_FOLDER, 'data', subj))
+    if output_folder:
+        metadata.to_csv(os.path.join(output_folder, subj, 'waveforms_metadata.csv'), index=False)
+        np.save(os.path.join(output_folder, subj, 'waveforms.npy'), waveforms)
+    else:
+        if not os.path.exists(os.path.join(SCRIPT_FOLDER, 'data', subj)):
+            os.makedirs(os.path.join(SCRIPT_FOLDER, 'data', subj))
 
-    metadata.to_csv(os.path.join(SCRIPT_FOLDER, 'data', subj, 'waveforms_metadata.csv'), index=False)
-    np.save(os.path.join(SCRIPT_FOLDER, 'data', subj, 'waveforms.npy'), waveforms)
+        metadata.to_csv(os.path.join(SCRIPT_FOLDER, 'data', subj, 'waveforms_metadata.csv'), index=False)
+        np.save(os.path.join(SCRIPT_FOLDER, 'data', subj, 'waveforms.npy'), waveforms)
     
     return 
 
 
-def preprocess_BMI():
+def preprocess_BMI( input_folder = None, 
+                   output_folder = None):
     
     for subj in SUBJECT:
-        metadata, waveforms = read_BMI_data(subj)
-        save_data(subj, metadata, waveforms)
+        metadata, waveforms = read_BMI_data(subj, input_folder)
+        save_data(subj, metadata, waveforms, output_folder)
 
 
 if __name__ == '__main__':
