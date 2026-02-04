@@ -13,7 +13,7 @@ def load_example_data(subj: str):
     return track.Tracking(subj)
 
 
-def get_waveforms_from_channel(tracking_data: track.tracking, channel: int):
+def get_waveforms_from_channel(tracking_data: track.Tracking, channel: int):
     """
     Extracts waveforms from a specific channel.
     

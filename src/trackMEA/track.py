@@ -15,8 +15,9 @@ import datetime
 from collections import Counter, defaultdict
 
 
-SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
-PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
+TRACKMEA_FOLDER = os.path.dirname(os.path.abspath(__file__))
+SRC_FOLDER = os.path.dirname(TRACKMEA_FOLDER)
+PROJECT_FOLDER = os.path.dirname(SRC_FOLDER)
 DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
 RESULT_FOLDER = os.path.join(PROJECT_FOLDER, 'result')
 DUMMY_NUMBER = 1e7 
@@ -67,6 +68,8 @@ class Tracking:
         
         self.subject = subject
         self.data_dir = os.path.join(DATA_FOLDER, self.subject)
+
+        print(f'[{self.subject}] Loading data from {self.data_dir}')
         
         if not os.path.exists(self.data_dir):
             raise ValueError('Data for this subject not existed.')
