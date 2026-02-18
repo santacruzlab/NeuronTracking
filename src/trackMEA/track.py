@@ -112,8 +112,8 @@ class Tracking:
         self.clusters: pd.DataFrame = None
         self.useful_clusters: pd.DataFrame = None
         self.tuning_params: dict = dict()
-        # self.calc_matched_units()
-        # self.get_clusters()
+        self.calc_matched_units()
+        self.get_clusters()
 
 
     def find_channels(self):
@@ -332,13 +332,13 @@ class Tracking:
                 name = potential_match_name[k] # Shorthand
                 
                 # Grab the dates for all labels 
-                counts = Counter([parse_unit(n)[0] for n in name], subject=self.subject) 
+                counts = Counter([parse_unit(n)[0] for n in name]) #, subject=self.subject) 
                 bug_dates = [key for key, value in counts.items() if value > 1]
                 
                 if len(bug_dates) > 0: # Then we will deal with this case
                 
                     # Find where in that potential match (var: name) has repetition
-                    ind_for_potential_match = find_repeated_indices([parse_unit(n)[0] for n in name], subject=self.subject) 
+                    ind_for_potential_match = find_repeated_indices([parse_unit(n)[0] for n in name]) #, subject=self.subject) 
                     
                     # Use a list to collect the indices to be removed
                     ind_to_remove = []
@@ -365,7 +365,7 @@ class Tracking:
         if verify:
             for i in range(len(self.matched_units)):
                 unit = self.matched_units[i]
-                unique_dates = np.unique([parse_unit(u)[0] for u in unit], subject=self.subject) 
+                unique_dates = np.unique([parse_unit(u)[0] for u in unit]) #, subject=self.subject) 
                 if len(unit) > len(unique_dates):
                     print(f'Matched units {i} has conflict units.')
                     print(f'Use self.matched_units[{i}] to debug.')
