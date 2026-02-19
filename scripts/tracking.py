@@ -22,18 +22,25 @@ from scipy.signal import spectrogram
 from collections import Counter, defaultdict
 from matplotlib_venn import venn2
 
-BMI_FOLDER = '/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects/bmi_python'
-PROJECT_FOLDER = '/Users/hungyunlu/Library/CloudStorage/Box-Box/Hung-Yun Lu Research File/Projects/neuron_tracking'
-NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
-NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
+# rewritten with (hopefully) universal support.
+SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
+PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
+DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
+RAWDATA_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
+GITHUB_FOLDER = os.path.dirname(PROJECT_FOLDER)
+BMI_FOLDER = os.path.join(GITHUB_FOLDER, 'bmi_python')
+NSX_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
+NS_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
-os.chdir(NSX_FOLDER)
-from brpylib import NsxFile
-os.chdir(NS_FOLDER)
-from nsfile import NSFile
-os.chdir(PROJECT_FOLDER)
-from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_ROTATION, BRAZOS_ROTATION
 
+os.chdir(BMI_FOLDER)
+from riglib.blackrock.brpylib import NsxFile
+os.chdir(BMI_FOLDER)
+# from nsfile import NSFile
+from riglib.ripple.pyns.pyns.nsfile import NSFile
+os.chdir(SCRIPT_FOLDER)
+from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, AIRPORT_ROTATION, BRAZOS_ROTATION
+os.chdir(PROJECT_FOLDER)
 
 # Constants
 LETTER_CODE = {2.: 'a', 4.: 'b', 8.: 'c', 16.: 'd'}
@@ -42,6 +49,14 @@ SUBJECT = ['airp', 'braz']
 SESSIONS = dict(zip(SUBJECT, [AIRPORT_SESSIONS, BRAZOS_SESSIONS]))
 ROTATION = dict(zip(AIRPORT_SESSIONS + BRAZOS_SESSIONS, 
                     AIRPORT_ROTATION + BRAZOS_ROTATION))
+#SAVE_FOLDER = dict(zip([AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, BRAZOS_SESSIONS], [r"X:\storage\rawdata", r"Y:\storage\rawdata", r"W:\storage\rawdata"]))
+SAVE_FOLDER = {}
+storage_paths = [r"X:\storage\rawdata", r"Y:\storage\rawdata", r"W:\storage\rawdata"]
+for i, sessions in enumerate([ AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, BRAZOS_SESSIONS ]):
+    for session in sessions:
+        SAVE_FOLDER[session] = storage_paths[i]
+
+# SAVE_FOLDER = dict(zip([AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, BRAZOS_SESSIONS], [r"K:\storage\rawdata", r"L:\storage\rawdata", r"J:\storage\rawdata"]))
 SUBJECT_COLOR = dict(zip(SUBJECT, ['g', 'b']))
 DUMMY_NUMBER = 1e7 
 N_BOOTSTRAP = 1000
@@ -505,6 +520,9 @@ class BMI:
         
         self.session = session
         self.file_prefix = os.path.join(PROJECT_FOLDER, 'data', self.session)
+        self.file_prefix_hdf = os.path.join(SAVE_FOLDER[self.session], 'hdf', self.session)
+        self.file_prefix_ripple = os.path.join(SAVE_FOLDER[self.session], 'ripple', self.session)
+
         
         # [Initiate different data files]
         self.ns2file = None
@@ -597,13 +615,13 @@ class BMI:
         The ns5 and ns2 are optional.
         """
         
-        if os.path.exists(self.file_prefix + '.hdf'):
+        if os.path.exists(self.file_prefix_hdf + '.hdf'):
             self.has_hdf = True
-        if os.path.exists(self.file_prefix + '.ns5'):
+        if os.path.exists(self.file_prefix_ripple + '.ns5'):
             self.has_ns5 = True
-        if os.path.exists(self.file_prefix + '.ns2'):
+        if os.path.exists(self.file_prefix_ripple + '.ns2'):
             self.has_ns2 = True
-        if os.path.exists(self.file_prefix + '.nev'):
+        if os.path.exists(self.file_prefix_ripple + '.nev'):
             self.has_nev = True
         if os.path.exists(self.file_prefix + '_syncHDF.mat'):
             self.has_mat = True
@@ -615,15 +633,15 @@ class BMI:
 
     def load_data(self):
         
-        if self.has_hdf:
-            self.hdffile = tables.open_file(self.file_prefix + '.hdf')
+        # if self.has_hdf:
+        #     self.hdffile = tables.open_file(self.file_prefix_hdf + '.hdf')
             
-        # if self.has_ns5:
-        #     self.ns5file = NsxFile(self.file_prefix + '.ns5')
+        if self.has_ns5:
+            self.ns5file = NsxFile(self.file_prefix_ripple + '.ns5')
                 
-        # if self.has_nev:
-        #     self.nevfile = NSFile(self.file_prefix + '.nev')
-        #     self.spike_entities = [e for e in self.nevfile.get_entities() if e.entity_type==3]
+        if self.has_nev:
+            self.nevfile = NSFile(self.file_prefix_ripple + '.nev')
+            self.spike_entities = [e for e in self.nevfile.get_entities() if e.entity_type==3]
             
         if self.has_mat:
             self.matfile = scipy.io.loadmat(self.file_prefix + '_syncHDF.mat')
@@ -642,7 +660,7 @@ class BMI:
     def read_lfp(self):
         
         if self.has_ns2:
-            self.ns2file = NsxFile(self.file_prefix + '.ns2')
+            self.ns2file = NsxFile(self.file_prefix_ripple + '.ns2')
     
             
     @property
@@ -882,7 +900,7 @@ class Tracking:
         self.grouped_channel = None
         self.useful_channel = None
         self.useful_df = None 
-        self.read_sessions(parse=True)
+        self.read_sessions() # parse=True)
         self.read_data()
         
         print(f'[{self.subject}] Calculating similarities')
