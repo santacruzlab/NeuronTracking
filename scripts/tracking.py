@@ -29,15 +29,17 @@ DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
 RAWDATA_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
 GITHUB_FOLDER = os.path.dirname(PROJECT_FOLDER)
 BMI_FOLDER = os.path.join(GITHUB_FOLDER, 'bmi_python')
-NSX_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
-NS_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
+NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
+NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
+NEV_OUTPUT_FOLDER = r"F:\cole\neuron_tracking_nev_outputs\neuron_tracking_pkl_files"
 
-os.chdir(BMI_FOLDER)
-from riglib.blackrock.brpylib import NsxFile
-os.chdir(BMI_FOLDER)
+os.chdir(NSX_FOLDER)
+print(NSX_FOLDER)
+from brpylib import NsxFile
+os.chdir(NS_FOLDER)
 # from nsfile import NSFile
-from riglib.ripple.pyns.pyns.nsfile import NSFile
+from nsfile import NSFile
 os.chdir(SCRIPT_FOLDER)
 from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, AIRPORT_ROTATION, BRAZOS_ROTATION
 os.chdir(PROJECT_FOLDER)
@@ -51,7 +53,7 @@ ROTATION = dict(zip(AIRPORT_SESSIONS + BRAZOS_SESSIONS,
                     AIRPORT_ROTATION + BRAZOS_ROTATION))
 #SAVE_FOLDER = dict(zip([AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, BRAZOS_SESSIONS], [r"X:\storage\rawdata", r"Y:\storage\rawdata", r"W:\storage\rawdata"]))
 SAVE_FOLDER = {}
-storage_paths = [r"X:\storage\rawdata", r"Y:\storage\rawdata", r"W:\storage\rawdata"]
+storage_paths = [r"X:\storage\rawdata", r"Y:\storage\rawdata", r"W:\storage\rawdata"] # santacruz2, santacruz1, santacruz3
 for i, sessions in enumerate([ AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, BRAZOS_SESSIONS ]):
     for session in sessions:
         SAVE_FOLDER[session] = storage_paths[i]
@@ -522,6 +524,7 @@ class BMI:
         self.file_prefix = os.path.join(PROJECT_FOLDER, 'data', self.session)
         self.file_prefix_hdf = os.path.join(SAVE_FOLDER[self.session], 'hdf', self.session)
         self.file_prefix_ripple = os.path.join(SAVE_FOLDER[self.session], 'ripple', self.session)
+        self.file_prefix_nev_output = os.path.join(NEV_OUTPUT_FOLDER, self.session)
 
         
         # [Initiate different data files]
@@ -625,7 +628,7 @@ class BMI:
             self.has_nev = True
         if os.path.exists(self.file_prefix + '_syncHDF.mat'):
             self.has_mat = True
-        if os.path.exists(self.file_prefix + '_nev_output.pkl'):
+        if os.path.exists(self.file_prefix_nev_output + '_nev_output.pkl'):
             self.has_nev_output = True
         if os.path.exists(self.file_prefix + '_KFDecoder.pkl'):
             self.has_decoder = True
@@ -647,7 +650,7 @@ class BMI:
             self.matfile = scipy.io.loadmat(self.file_prefix + '_syncHDF.mat')
             
         if self.has_nev_output:
-            with open(self.file_prefix + '_nev_output.pkl', 'rb') as f:
+            with open(self.file_prefix_nev_output + '_nev_output.pkl', 'rb') as f:
                 self.pklfile = pickle.load(f)
         
         if self.has_decoder:
