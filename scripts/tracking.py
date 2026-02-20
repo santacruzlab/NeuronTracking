@@ -1,3 +1,4 @@
+#%% imports
 import os
 import re
 import glob
@@ -22,6 +23,7 @@ from scipy.signal import spectrogram
 from collections import Counter, defaultdict
 from matplotlib_venn import venn2
 
+#%% Main setup and stuff
 # rewritten with (hopefully) universal support.
 SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
 PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
@@ -34,12 +36,11 @@ NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
 NEV_OUTPUT_FOLDER = r"F:\cole\neuron_tracking_nev_outputs\neuron_tracking_pkl_files"
 
-os.chdir(NSX_FOLDER)
-print(NSX_FOLDER)
-from brpylib import NsxFile
-os.chdir(NS_FOLDER)
+os.chdir(BMI_FOLDER)
+from riglib.blackrock.brpylib import NsxFile
+os.chdir(BMI_FOLDER)
 # from nsfile import NSFile
-from nsfile import NSFile
+from riglib.ripple.pyns.pyns.nsfile import NSFile
 os.chdir(SCRIPT_FOLDER)
 from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, AIRPORT_ROTATION, BRAZOS_ROTATION
 os.chdir(PROJECT_FOLDER)
@@ -2807,8 +2808,6 @@ x = braz.useful_clusters.n_unit.argmax()
 cluster_ID = braz.useful_clusters.iloc[x].cluster_ID
 __plot_matched_units_tuning_arrow(braz, cluster_ID)
 __plot_matched_units_waveform(braz,cluster_ID)
-
-#%% UNFINISHED
 
 
 #%% ISI
