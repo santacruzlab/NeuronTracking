@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import glob
 import scipy
 import tables
@@ -22,6 +23,8 @@ from scipy.signal import spectrogram
 from collections import Counter, defaultdict
 from matplotlib_venn import venn2
 
+print('Imported libraries!')
+
 # rewritten with (hopefully) universal support.
 SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
 PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
@@ -34,15 +37,18 @@ NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
 NEV_OUTPUT_FOLDER = r"F:\cole\neuron_tracking_nev_outputs\neuron_tracking_pkl_files"
 
-os.chdir(NSX_FOLDER)
-print(NSX_FOLDER)
-from brpylib import NsxFile
-os.chdir(NS_FOLDER)
+sys.path.insert(0,BMI_FOLDER)
+sys.path.insert(0,NS_FOLDER)
+# os.chdir(BMI_FOLDER)
+from riglib.blackrock.brpylib import NsxFile
+# os.chdir(BMI_FOLDER)
 # from nsfile import NSFile
-from nsfile import NSFile
+from riglib.ripple.pyns.pyns.nsfile import NSFile
 os.chdir(SCRIPT_FOLDER)
 from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, AIRPORT_ROTATION, BRAZOS_ROTATION
 os.chdir(PROJECT_FOLDER)
+
+print('Imported bmi_python libraries!')
 
 # Constants
 LETTER_CODE = {2.: 'a', 4.: 'b', 8.: 'c', 16.: 'd'}
