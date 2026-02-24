@@ -51,6 +51,7 @@ os.chdir(PROJECT_FOLDER)
 
 print('Imported bmi_python libraries!')
 
+#%% Main and stuff
 # Constants
 LETTER_CODE = {2.: 'a', 4.: 'b', 8.: 'c', 16.: 'd'}
 ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
@@ -1062,15 +1063,18 @@ class Tracking:
         
         session,date,unit_code,channel,is_direct,rotation, = [],[],[],[],[],[]
         for i in range(len(self.raw_df)):
-            s, d, c, u = parse_unit(self.raw_df['unit'].iloc[i])
-            direct = u in self.raw_data[s].direct_units
-            rot = self.raw_data[s].rotation_angle
-            session.append(s)
-            date.append(d)
-            channel.append(c)
-            unit_code.append(u)
-            is_direct.append(direct)
-            rotation.append(rot)
+            try:
+                s, d, c, u = parse_unit(self.raw_df['unit'].iloc[i])
+                direct = u in self.raw_data[s].direct_units
+                rot = self.raw_data[s].rotation_angle
+                session.append(s)
+                date.append(d)
+                channel.append(c)
+                unit_code.append(u)
+                is_direct.append(direct)
+                rotation.append(rot)
+            except:
+                print(f"{session} was skipped!")
             
         metrics_df = self.raw_df.apply(self.calc_waveform_metrics, axis=1)
         self.raw_df = pd.concat([self.raw_df, metrics_df], axis=1)
