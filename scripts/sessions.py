@@ -90,10 +90,9 @@ AIRPORT_SESSIONS = [ #santacruz2/santacruz1 on storage server
     'airp20220319_14_te2079',
     'airp20220322_04_te2103',
     'airp20220323_04_te2107',
-    'airp20220324_04_te2111',
+    'airp20220324_04_te2111'
     
 ]
-
 
 BRAZOS_SESSIONS = [ #santacruz3 on storage server
     
@@ -143,3 +142,17 @@ BRAZOS_SESSIONS = [ #santacruz3 on storage server
     'braz20220627_04_te529'
     
     ]
+
+# AIRPORT_SESSIONS = [ #santacruz2/santacruz1 on storage server
+    
+#     'airp20211202_04_te1598'
+    
+# ]
+
+# BRAZOS_SESSIONS = [ #santacruz3 on storage server
+    
+#     'braz20220315_07_te90',
+#     'braz20220316_06_te96',
+#     'braz20220318_07_te108'
+    
+#     ]

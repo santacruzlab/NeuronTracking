@@ -931,9 +931,9 @@ class Tracking:
         self.calc_matched_units()
         self.get_clusters()
         
-        print(f'[{self.subject}] Post-processing analysis')
-        self.calc_tuning()
-        self.calc_PD_metric()
+        # print(f'[{self.subject}] Post-processing analysis')
+        # self.calc_tuning()
+        # self.calc_PD_metric()
         
         
     @staticmethod
@@ -1063,18 +1063,19 @@ class Tracking:
         
         session,date,unit_code,channel,is_direct,rotation, = [],[],[],[],[],[]
         for i in range(len(self.raw_df)):
+            s, d, c, u = parse_unit(self.raw_df['unit'].iloc[i])
             try:
-                s, d, c, u = parse_unit(self.raw_df['unit'].iloc[i])
                 direct = u in self.raw_data[s].direct_units
-                rot = self.raw_data[s].rotation_angle
-                session.append(s)
-                date.append(d)
-                channel.append(c)
-                unit_code.append(u)
-                is_direct.append(direct)
-                rotation.append(rot)
             except:
-                print(f"{session} was skipped!")
+                # print(f"[{s}] - skipped direct units.")
+                direct = None
+            rot = self.raw_data[s].rotation_angle
+            session.append(s)
+            date.append(d)
+            channel.append(c)
+            unit_code.append(u)
+            is_direct.append(direct)
+            rotation.append(rot)
             
         metrics_df = self.raw_df.apply(self.calc_waveform_metrics, axis=1)
         self.raw_df = pd.concat([self.raw_df, metrics_df], axis=1)
@@ -1354,7 +1355,7 @@ class Tracking:
                 row = np.where(self.useful_df.unit==unit)[0]                
                 self.useful_df.loc[row,'cluster_ID'] = cluster_ID 
                 cluster_df.loc[u, 'rotation'] = self.useful_df.loc[row[0],'rotation']
-                cluster_df.loc[u, 'is_direct'] = self.useful_df.loc[row[0],'is_direct']
+                # cluster_df.loc[u, 'is_direct'] = self.useful_df.loc[row[0],'is_direct']
                 
         self.useful_clusters = self.clusters[self.clusters['n_unit'] >= USEFUL_N_UNIT].reset_index(drop=True)
                 
