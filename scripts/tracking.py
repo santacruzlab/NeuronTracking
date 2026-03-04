@@ -37,9 +37,13 @@ NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
 NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
 NEV_OUTPUT_FOLDER = r"F:\cole\neuron_tracking_nev_outputs\neuron_tracking_pkl_files"
+HDF_FOLDER = r"F:\cole\neuron_tracking_hdfs"
+MAT_FOLDER = r"F:\cole\neuron_tracking_syncHDF"
+DECODER_FOLDER = r"F:\cole\neuron_tracking_KFDecoder"
 
 sys.path.insert(0,BMI_FOLDER)
 sys.path.insert(0,NS_FOLDER)
+
 # os.chdir(BMI_FOLDER)
 from riglib.blackrock.brpylib import NsxFile
 # os.chdir(BMI_FOLDER)
@@ -530,9 +534,12 @@ class BMI:
         
         self.session = session
         self.file_prefix = os.path.join(PROJECT_FOLDER, 'data', self.session)
-        self.file_prefix_hdf = os.path.join(SAVE_FOLDER[self.session], 'hdf', self.session)
+        self.file_prefix_hdf = os.path.join(HDF_FOLDER, self.session)
+        # print(self.file_prefix_hdf)
         self.file_prefix_ripple = os.path.join(SAVE_FOLDER[self.session], 'ripple', self.session)
         self.file_prefix_nev_output = os.path.join(NEV_OUTPUT_FOLDER, self.session)
+        self.file_prefix_mat = os.path.join(MAT_FOLDER, self.session)
+        self.file_prefix_decoder = os.path.join(DECODER_FOLDER, self.session)
 
         
         # [Initiate different data files]
@@ -592,6 +599,7 @@ class BMI:
     @staticmethod
     def hdf_to_sample(hdf_states, hdf_times):
         sample_number = np.zeros(hdf_states.size)
+
         hdf_rows = hdf_times['row_number'][0]
         ripple = hdf_times['ripple_samplenumber'][0]
         
@@ -634,18 +642,18 @@ class BMI:
             self.has_ns2 = True
         if os.path.exists(self.file_prefix_ripple + '.nev'):
             self.has_nev = True
-        if os.path.exists(self.file_prefix + '_syncHDF.mat'):
+        if os.path.exists(self.file_prefix_mat + '_syncHDF.mat'):
             self.has_mat = True
         if os.path.exists(self.file_prefix_nev_output + '_nev_output.pkl'):
             self.has_nev_output = True
-        if os.path.exists(self.file_prefix + '_KFDecoder.pkl'):
+        if os.path.exists(self.file_prefix_decoder + '_KFDecoder.pkl'):
             self.has_decoder = True
 
 
     def load_data(self):
         
-        # if self.has_hdf:
-        #     self.hdffile = tables.open_file(self.file_prefix_hdf + '.hdf')
+        if self.has_hdf:
+            self.hdffile = tables.open_file(self.file_prefix_hdf + '.hdf')
             
         if self.has_ns5:
             self.ns5file = NsxFile(self.file_prefix_ripple + '.ns5')
@@ -655,7 +663,7 @@ class BMI:
             self.spike_entities = [e for e in self.nevfile.get_entities() if e.entity_type==3]
             
         if self.has_mat:
-            self.matfile = scipy.io.loadmat(self.file_prefix + '_syncHDF.mat')
+            self.matfile = scipy.io.loadmat(self.file_prefix_mat + '_syncHDF.mat')
             
         if self.has_nev_output:
             with open(self.file_prefix_nev_output + '_nev_output.pkl', 'rb') as f:
@@ -911,7 +919,7 @@ class Tracking:
         self.grouped_channel = None
         self.useful_channel = None
         self.useful_df = None 
-        self.read_sessions() # parse=True)
+        self.read_sessions(parse=True)
         self.read_data()
         
         print(f'[{self.subject}] Calculating similarities')
@@ -1067,7 +1075,7 @@ class Tracking:
             try:
                 direct = u in self.raw_data[s].direct_units
             except:
-                # print(f"[{s}] - skipped direct units.")
+                print(f"[{s}] - skipped direct units.")
                 direct = None
             rot = self.raw_data[s].rotation_angle
             session.append(s)
@@ -1355,7 +1363,7 @@ class Tracking:
                 row = np.where(self.useful_df.unit==unit)[0]                
                 self.useful_df.loc[row,'cluster_ID'] = cluster_ID 
                 cluster_df.loc[u, 'rotation'] = self.useful_df.loc[row[0],'rotation']
-                # cluster_df.loc[u, 'is_direct'] = self.useful_df.loc[row[0],'is_direct']
+                cluster_df.loc[u, 'is_direct'] = self.useful_df.loc[row[0],'is_direct']
                 
         self.useful_clusters = self.clusters[self.clusters['n_unit'] >= USEFUL_N_UNIT].reset_index(drop=True)
                 
@@ -2760,10 +2768,10 @@ def __get_threshold(subj: Tracking, pct: float, PLOT: bool):
         plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_thresholds.svg'))
     plt.show()
 
-airp = Tracking('airp')
+# airp = Tracking('airp')
 braz = Tracking('braz')
 
-read_lfp_later(airp)
+# read_lfp_later(airp)
 read_lfp_later(braz)
 
 #%% PLOTS
