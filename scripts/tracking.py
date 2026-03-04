@@ -670,7 +670,7 @@ class BMI:
                 self.pklfile = pickle.load(f)
         
         if self.has_decoder:
-            with open(self.file_prefix + '_KFDecoder.pkl', 'rb') as f:
+            with open(self.file_prefix_decoder + '_KFDecoder.pkl', 'rb') as f:
                 os.chdir(BMI_FOLDER) # Has to be done this way otherwise cannot open.
                 self.decfile = pickle.load(f)
                 os.chdir(PROJECT_FOLDER)
