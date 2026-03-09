@@ -40,6 +40,7 @@ NEV_OUTPUT_FOLDER = r"F:\cole\neuron_tracking_nev_outputs\neuron_tracking_pkl_fi
 HDF_FOLDER = r"F:\cole\neuron_tracking_hdfs"
 MAT_FOLDER = r"F:\cole\neuron_tracking_syncHDF"
 DECODER_FOLDER = r"F:\cole\neuron_tracking_KFDecoder"
+COHERENCE_FOLDER = r"F:\ug_proj\coherences"
 
 sys.path.insert(0,BMI_FOLDER)
 sys.path.insert(0,NS_FOLDER)
@@ -2768,10 +2769,10 @@ def __get_threshold(subj: Tracking, pct: float, PLOT: bool):
         plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_thresholds.svg'))
     plt.show()
 
-# airp = Tracking('airp')
+airp = Tracking('airp')
 braz = Tracking('braz')
 
-# read_lfp_later(airp)
+read_lfp_later(airp)
 read_lfp_later(braz)
 
 #%% PLOTS
@@ -2959,11 +2960,13 @@ def sfc_of_tracked_neuron(example: pd.Series, title: str, rand: bool = False):
     # plt.figure(figsize=(4,4)) # Each line is data from a neuron
     
     coherences = []
+    sessions = []
     
     for n in range(example.n_unit): # For each neuron in a cluster
         session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[n]
         print(session)
-        
+        sessions.append(session)
+
         bmi = subj.raw_data[session]
         ns2 = bmi.ns2file
         ind = bmi.index
@@ -3047,7 +3050,7 @@ def sfc_of_tracked_neuron(example: pd.Series, title: str, rand: bool = False):
             pass
         
         
-    return np.array(coherences)
+    return np.array(coherences), np.array(sessions)
         
     # plt.legend(frameon=False)
     # plt.xlabel('Time from movement to target (sec)')
@@ -3058,27 +3061,36 @@ def sfc_of_tracked_neuron(example: pd.Series, title: str, rand: bool = False):
     #     plt.savefig(os.path.join(FIG_FOLDER, sub_folder, f'{title}.svg'))
     # plt.ylim([0, 0.4])
     # plt.show()
-    
-# for subj in [airp, braz]: # For each subject
-subj=braz
 
-subj.useful_clusters['stable_sfc'] = None
+os.chdir(COHERENCE_FOLDER)
 
-for k in range(len(subj.useful_clusters)): # Go through each useful cluster
-    
-    print(f'Cluster [{k}]')
-    example = subj.useful_clusters.iloc[k]
-    title = f'[{subj.subject}]_SFC_[{k}]'
-    res = sfc_of_tracked_neuron(example, title)
+for subj in [airp, braz]: # For each subject
+    # subj=braz
+
+    subj.useful_clusters['stable_sfc'] = None
+
+    for k in range(len(subj.useful_clusters)): # Go through each useful cluster
         
-    if res.ndim > 1:
-        avg_coh = res[:,50:75].max(1)
-        sig = pg.ttest(avg_coh,avg_coh[0])['p-val'].iloc[0]
-        print(sig)
-        
-    else:
-        sig = 1
-    subj.useful_clusters.at[k, 'stable_sfc'] = sig
+        print(f'Cluster [{k}]')
+        example = subj.useful_clusters.iloc[k]
+        title = f'[{subj.subject}]_SFC_[{k}]'
+        res, ses = sfc_of_tracked_neuron(example, title)
+            
+        if res.ndim > 1:
+            header = ''
+            for idxs in range(len(ses)-1):
+                header = header + ses[idxs] + ','
+
+            header += ses[idxs+1]
+            np.savetxt(f'{subj.subject}_c{k}.csv', res.T, delimiter=',', fmt='%.5f', header=header, comments='')
+            np.save(f'{subj.subject}_c{k}.npy', res)
+            avg_coh = res[:,50:75].max(1)
+            sig = pg.ttest(avg_coh,avg_coh[0])['p-val'].iloc[0]
+            print(sig)
+            
+        else:
+            sig = 1
+        subj.useful_clusters.at[k, 'stable_sfc'] = sig
 
 
 
