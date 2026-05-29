@@ -27,15 +27,17 @@ from matplotlib_venn import venn2
 print('Imported libraries!')
 
 # rewritten with (hopefully) universal support.
-SCRIPT_FOLDER = os.path.dirname(os.path.abspath(__file__))
-PROJECT_FOLDER = os.path.dirname(SCRIPT_FOLDER)
+UTILS_FOLDER = os.path.dirname(os.path.abspath(__file__))
+UG_FOLDER = os.path.dirname(UTILS_FOLDER)
+PROJECT_FOLDER = os.path.dirname(UG_FOLDER)
 DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
-RAWDATA_FOLDER = os.path.join(PROJECT_FOLDER, 'rawdata')
+
 GITHUB_FOLDER = os.path.dirname(PROJECT_FOLDER)
 BMI_FOLDER = os.path.join(GITHUB_FOLDER, 'bmi_python')
 NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
 NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
+
 NEV_OUTPUT_FOLDER = r"F:\cole\neuron_tracking_nev_outputs\neuron_tracking_pkl_files"
 HDF_FOLDER = r"F:\cole\neuron_tracking_hdfs"
 MAT_FOLDER = r"F:\cole\neuron_tracking_syncHDF"
@@ -51,8 +53,6 @@ from riglib.blackrock.brpylib import NsxFile
 # os.chdir(BMI_FOLDER)
 # from nsfile import NSFile
 from riglib.ripple.pyns.pyns.nsfile import NSFile
-os.chdir(SCRIPT_FOLDER)
-from sessions import AIRPORT_SESSIONS, BRAZOS_SESSIONS, AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, AIRPORT_ROTATION, BRAZOS_ROTATION
 os.chdir(PROJECT_FOLDER)
 
 print('Imported bmi_python libraries!')
@@ -60,66 +60,11 @@ print('Imported bmi_python libraries!')
 #%% Main and stuff
 # Constants
 LETTER_CODE = {2.: 'a', 4.: 'b', 8.: 'c', 16.: 'd'}
-ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
-SUBJECT = ['airp', 'braz']
-SESSIONS = dict(zip(SUBJECT, [AIRPORT_SESSIONS, BRAZOS_SESSIONS]))
-ROTATION = dict(zip(AIRPORT_SESSIONS + BRAZOS_SESSIONS, 
-                    AIRPORT_ROTATION + BRAZOS_ROTATION))
-SAVE_FOLDER = {}
-storage_paths = [r"X:\storage\rawdata", r"Y:\storage\rawdata", r"W:\storage\rawdata"] # santacruz2, santacruz1, santacruz3
-for i, sessions in enumerate([ AIRPORT_SESSIONS_1, AIRPORT_SESSIONS_2, BRAZOS_SESSIONS ]):
-    for session in sessions:
-        SAVE_FOLDER[session] = storage_paths[i]
 
-SUBJECT_COLOR = dict(zip(SUBJECT, ['g', 'b']))
 DUMMY_NUMBER = 1e7 
 N_BOOTSTRAP = 1000
 USEFUL_N_UNIT = 3
 SAVEFIG = True
-
-def _generate_nev_output(
-        all_sessions: list[str] = AIRPORT_SESSIONS + BRAZOS_SESSIONS,
-        count: bool = True):
-    """
-    
-    The main fit_tuning to generate the nev_output.pkl file for each session.
-    
-    """
-    
-    def count_processed_files(sessions: list[str]):
-        
-        counts = 0
-        for file in sessions:
-            f = os.path.join(PROJECT_FOLDER, 'data', f'{file}_nev_output.pkl')
-            if os.path.exists(f):
-                counts += 1
-    
-        return counts
-            
-
-    for session in all_sessions:
-        
-        nev_output = os.path.join(PROJECT_FOLDER, 'data', f'{session}_nev_output.pkl')
-        nev_input = os.path.join(PROJECT_FOLDER, 'data', f'{session}.nev')
-    
-        print(session)
-        if not os.path.exists(nev_output):
-            if os.path.exists(nev_input):
-                print('Reading...')
-                task = BMI(session)
-                task.load_data()
-                task.extract_waveform()
-                nev_result = task.waveform
-            
-                with open(nev_output, 'wb') as f:
-                    pickle.dump(nev_result.to_dict(), f)
-                    print('Saved.')
-                    
-    if count:
-        count_processed_files(all_sessions)
-        
-    return None
-
 
 def __calc_firing_rate(array):
     """
@@ -499,7 +444,7 @@ class Sync:
 
 class BMI:
     
-    def __init__(self, session: str):
+    def __init__(self, session: str, save_folder: str, rotation: int):
         
         """
         General guidelines for navigating the files.
@@ -533,10 +478,11 @@ class BMI:
         """
         
         self.session = session
+        self.rotation = rotation
         self.file_prefix = os.path.join(PROJECT_FOLDER, 'data', self.session)
         self.file_prefix_hdf = os.path.join(HDF_FOLDER, self.session)
         # print(self.file_prefix_hdf)
-        self.file_prefix_ripple = os.path.join(SAVE_FOLDER[self.session], 'ripple', self.session)
+        self.file_prefix_ripple = os.path.join(save_folder, 'ripple', self.session)
         self.file_prefix_nev_output = os.path.join(NEV_OUTPUT_FOLDER, self.session)
         self.file_prefix_mat = os.path.join(MAT_FOLDER, self.session)
         self.file_prefix_decoder = os.path.join(DECODER_FOLDER, self.session)
@@ -796,7 +742,7 @@ class BMI:
         self.direct_units = [f(unit) for unit in self.decfile.units]
         
         # [Get rotation angles]
-        self.rotation_angle = ROTATION[self.session]
+        self.rotation_angle = self.rotation
         
         # [Derived metrics]
         self.n_total_trials = len(self.hdf_reward)
@@ -892,7 +838,7 @@ class Matched:
 
 class Tracking:
 
-    def __init__(self, subject: str):
+    def __init__(self, subject: str, sessions: list[str], rotation: dict, save_folder: dict):
         """
         Our algorithm assumes that neurons cannot migrate far enough to be captured by a neighboring channel.
         This is a valid assumption for inter-electrode distance > ~500 microns.
@@ -909,8 +855,10 @@ class Tracking:
         """
 
         self.subject = subject
-        self.sessions = SESSIONS[self.subject]
+        self.sessions = sessions
         self.dates = [s[4:12] for s in self.sessions]
+        self.rotation = rotation
+        self.save_folder = save_folder
         
         print(f'[{self.subject}] Start tracking')
         self.raw_data: BMI = None
@@ -1045,7 +993,7 @@ class Tracking:
         """
         data = dict()
         for session in self.sessions:
-            task = BMI(session)
+            task = BMI(session, self.save_folder[session], self.rotation[session])
             # The parse parameter is False for default, but are set by read_full_data during init.
             # Separating BMI init and parsing data can save time if want to debug BMI class.
             if parse:
@@ -1548,7 +1496,7 @@ class Tracking:
             return None
             
         
-    def plot_unit_per_session(self, ax):
+    def plot_unit_per_session(self, ax, subject_color):
         
         """
         Plot number of units per session
@@ -1558,7 +1506,7 @@ class Tracking:
         x = y.index
         
         ax.plot(x, y, 'o--', 
-                c=SUBJECT_COLOR[self.subject],
+                c=subject_color[self.subject],
                 label=self.subject)
         ax.set_xticks(np.arange(len(x)))
         ax.set_xticklabels(ax.get_xticklabels(),rotation=90, fontsize=5)
@@ -1568,7 +1516,7 @@ class Tracking:
         ax.legend(frameon=False)
         
         
-    def plot_channel_stats(self, ax):
+    def plot_channel_stats(self, ax, subject_color):
         """
         Plot channel statistics
         Used in Fall 2024 meeting slides page 12.
@@ -1576,13 +1524,13 @@ class Tracking:
         ax.plot(range(1,len(self.grouped_channel)+1), 
                 self.grouped_channel, 
                 lw=0.5, 
-                color=SUBJECT_COLOR[self.subject],
+                color=subject_color[self.subject],
                 label=self.subject)
         ax.scatter(range(1,len(self.grouped_channel)+1), 
                    self.grouped_channel, 
                    marker='o', 
                    s=10, 
-                   color=SUBJECT_COLOR[self.subject])
+                   color=subject_color[self.subject])
         plt.legend(frameon=False)
         plt.xlabel('Channel ID sorted by number of waveforms')  
         plt.title('# waveforms in each channel across all sessions')
@@ -1729,7 +1677,7 @@ class Tracking:
             # plt.show()
             
     
-    def plot_cluster_PD_rate(self, cluster_ID):
+    def plot_cluster_PD_rate(self, cluster_ID, rotation_color):
         
         df = self.useful_clusters.query(f'cluster_ID == {cluster_ID}').iloc[0]
         
@@ -1739,7 +1687,7 @@ class Tracking:
         PD = minimal_PD_change(neuron.df.PD.copy())
         
         plt.figure(figsize=(5,5))
-        plt.scatter(days, PD, c=list(map(lambda x: ROTATION_CLR[x], neuron.df.rotation)))
+        plt.scatter(days, PD, c=list(map(lambda x: rotation_color[x], neuron.df.rotation)))
         plt.plot(days, np.array(days) * rate + intercept, c='k', ls='--', lw=2)
         plt.title(f'{neuron} #{cluster_ID}\nR2: {r2:.3f}, slope: {rate:.3f}, slope p-val: {pvals[1]:.3f}')
         plt.xlabel('Days')
@@ -1960,991 +1908,9 @@ class Tracking:
             plt.savefig(os.path.join(FIG_FOLDER, f'[{self.subject}]_example_cluster_algorithm_[masked].svg'))
         plt.show()
 
-
-def __plot_transformation_rescale(subj: Tracking):
-    
-    """
-    Check euclidean distribution and corrcoef distribution.
-    Used in Fall 2024 meeting slides page 24-25.
-    """
-    
-    def rescale(array, metric: str, nine: bool = False):
-        """
-        0-99 scaling in van Beest 2024 Nat Methods
-        If nine == True, use 0-99 scaling.
-        """
-                
-        if nine:
-            maxx = np.percentile(array, 99)
-        else:   
-            maxx = np.max(array)
-        minn = np.min(array)
-        
-        match metric:
-            case 'correlation':
-                result = (array - minn) / (maxx - minn)
-            case 'euclidean':
-                result = (maxx - array) / (maxx - minn)
-    
-        # Clipping    
-        result[result < 0] = 0
-        result[result > 1] = 1
-        result[np.isnan(result)] = 0 
-        return result
-    
-    calc_euclidean = lambda a,b: np.sqrt(np.sum((a-b)**2))
-    calc_corrcoef = lambda a,b: np.corrcoef(a, b)[0,1]
-    
-    euclidean = []
-    corrcoef = []
-    
-    for ch in subj.useful_channel:
-        ch_df = subj.useful_df[subj.useful_df['channel']==ch].sort_values(by='date')
-        
-        for i in range(len(ch_df)):
-            for j in range(len(ch_df)):
-                euclidean.append(calc_euclidean(
-                    ch_df['waveform'].iloc[i], ch_df['waveform'].iloc[j]))
-                corrcoef.append(calc_corrcoef(
-                    ch_df['waveform'].iloc[i], ch_df['waveform'].iloc[j]))
-
-    corrcoef = np.array(corrcoef)
-    euclidean = np.array(euclidean)
-    
-    fig,ax = plt.subplots(1,2,figsize=(6,3))
-    # Plot raw metrics
-    ax[0].hist(euclidean, bins=100, color=SUBJECT_COLOR[subj.subject])
-    ax[1].hist(corrcoef, bins=100, color=SUBJECT_COLOR[subj.subject])
-    
-    ax[0].set_title('Euclidean distance similarity', fontsize=10)
-    ax[1].set_title('Pearson correlation similarity', fontsize=10)
-    ax[0].set_ylabel('Counts')
-    ax[1].set_ylabel('Counts')
-    ax[0].set_xlabel('Euclidean distance')
-    ax[1].set_xlabel('Pearson correlation')
-    fig.subplots_adjust(wspace=0.6)
-    
-    corrcoef = corrcoef[np.abs(corrcoef-1) > 1e-10]
-    corrcoef = np.arctanh(corrcoef)
-    
-    euclidean = euclidean[np.abs(euclidean-0) > 1e-10]
-    euclidean = np.log(euclidean)
-    
-    fig,ax = plt.subplots(1,2,figsize=(6,3))
-    # Plot transformed metrics
-    ax[0].hist(euclidean, bins=100, color=SUBJECT_COLOR[subj.subject])
-    ax[1].hist(corrcoef, bins=100, color=SUBJECT_COLOR[subj.subject])
-    ax[0].set_title('Euclidean distance similarity', fontsize=10)
-    ax[1].set_title('Pearson correlation similarity', fontsize=10)
-    ax[0].set_ylabel('Counts')
-    ax[1].set_ylabel('Counts')
-    ax[0].set_xlabel('Log transformed\nEuclidean distance')
-    ax[1].set_xlabel('Fisher transformed\nPearson correlation')
-    fig.subplots_adjust(wspace=0.6)
-    
-    fig,ax = plt.subplots(1,2,figsize=(6,3))
-    # Plot rescaled transformed metrics (using 0-99 scaling)
-    ax[0].hist(rescale(euclidean, 'euclidean', nine=True), bins=100, color=SUBJECT_COLOR[subj.subject])
-    ax[1].hist(rescale(corrcoef, 'correlation', nine=True), bins=100, color=SUBJECT_COLOR[subj.subject])
-    ax[0].set_title('Euclidean distance similarity', fontsize=10)
-    ax[1].set_title('Pearson correlation similarity', fontsize=10)
-    ax[0].set_ylabel('Counts')
-    ax[1].set_ylabel('Counts')
-    ax[0].set_xlabel('Log transformed\nEuclidean distance')
-    ax[1].set_xlabel('Fisher transformed\nPearson correlation')
-    fig.subplots_adjust(wspace=0.6)
-    
-    fig,ax = plt.subplots(1,2,figsize=(6,3))
-    # Plot rescaled transformed metrics (using min-max scaling)
-    ax[0].hist(rescale(euclidean, 'euclidean'), bins=100, color=SUBJECT_COLOR[subj.subject])
-    ax[1].hist(rescale(corrcoef, 'correlation'), bins=100, color=SUBJECT_COLOR[subj.subject])
-    ax[0].set_title('Euclidean distance similarity', fontsize=10)
-    ax[1].set_title('Pearson correlation similarity', fontsize=10)
-    ax[0].set_ylabel('Counts')
-    ax[1].set_ylabel('Counts')
-    ax[0].set_xlabel('Log transformed\nEuclidean distance')
-    ax[1].set_xlabel('Fisher transformed\nPearson correlation')
-    fig.subplots_adjust(wspace=0.6)
-
-
-def __plot_sorting_grouping(subjs):
-    
-    """
-    Plot the sorting and grouping quality using brazos no.56 channel.
-    Used in Fall 2024 meeting slides page 27-29.
-    """
-    
-    ch = braz.sim_df.iloc[56]
-    
-    similarity = ch['total']
-    sym = ch['unit']
-    sym_map = dict(zip(sym, range(len(sym))))
-    complete, complete_sym = complete_sort(similarity, sym)
-    
-    fig,ax = plt.subplots(1,2,figsize=(8,4))
-    # Compare total similarity matrix before and after sorting
-    ax[0].pcolormesh(similarity, cmap='Blues', vmax=0.7, vmin=0)
-    ax[0].set_xticks(np.arange(len(similarity))+0.5)
-    ax[0].set_xticklabels(list(map(lambda x:sym_map[x], sym)), rotation=90, fontsize=5)
-    ax[0].set_yticks(np.arange(len(similarity))+0.5)
-    ax[0].set_yticklabels(list(map(lambda x:sym_map[x], sym)), fontsize=5)
-    ax[1].pcolormesh(complete, cmap='Blues', vmax=0.7, vmin=0)
-    ax[1].set_xticks(np.arange(len(similarity))+0.5)
-    ax[1].set_xticklabels(list(map(lambda x:sym_map[x], complete_sym)), rotation=90, fontsize=5)
-    ax[1].set_yticks(np.arange(len(similarity))+0.5)
-    ax[1].set_yticklabels(list(map(lambda x:sym_map[x], complete_sym)), fontsize=5)
-    plt.show()
-    
-    
-    plt.figure(figsize=(6,2))
-    # Plot traces of potential matched units
-    plt.subplot(131)
-    for unit in complete_sym[5:10]:
-        plt.plot(braz.useful_df[braz.useful_df.unit==unit]['waveform'].iloc[0], c='orange')
-        
-    plt.xticks([])
-    plt.yticks([])
-    
-    plt.subplot(132)
-    for unit in complete_sym[18:32]:
-        plt.plot(braz.useful_df[braz.useful_df.unit==unit]['waveform'].iloc[0], c='green')
-    
-    plt.xticks([])
-    plt.yticks([])
-    plt.subplot(133)
-    for unit in complete_sym[18:32]:
-        plt.plot(braz.useful_df[braz.useful_df.unit==unit]['waveform'].iloc[0], c='green')
-    
-    for unit in complete_sym[13:18]:
-        plt.plot(braz.useful_df[braz.useful_df.unit==unit]['waveform'].iloc[0], c='grey')
-    
-    for unit in complete_sym[32:37]:
-        plt.plot(braz.useful_df[braz.useful_df.unit==unit]['waveform'].iloc[0], c='grey')
-    
-    plt.xticks([])
-    plt.yticks([])
-    plt.show()
-    
-    for subj in subjs:
-        plt.figure(figsize=(10,10))
-        # Plot sorted total similarities for all useful channels in each subject.
-        for i in range(len(subj.sim_df)):
-            plt.subplot(12, 10, i+1)
-            ch = subj.sim_df.iloc[i]
-            similarity = ch['total']
-            sym = ch['unit']
-            sym_map = dict(zip(sym, range(len(sym))))
-            complete, complete_sym = complete_sort(similarity, sym, threshold=-0.0001)
-            
-            # plt.pcolormesh(similarity, cmap='Blues', vmax=0.7, vmin=0) # Unsorted
-            plt.pcolormesh(complete, cmap='Blues', vmax=0.7, vmin=0) # Sorted
-            plt.yticks([])
-            plt.xticks([])
-        plt.show()
-        
-def __plot_units_by_first_appearance(subjs):
-    subjs=[airp,braz]
-    plt.figure(figsize=(5,4))
-    for i, subj in enumerate(subjs):
-        plt.subplot(1,2,i+1)
-        first_date = np.min([subj.useful_clusters.neuron.iloc[_].start_date for _ in range(len(subj.useful_clusters.neuron))])
-        
-        dates = np.array([
-            [(subj.useful_clusters.neuron.iloc[i].start_date-first_date).days, 
-             (subj.useful_clusters.neuron.iloc[i].end_date-first_date).days - 
-                 (subj.useful_clusters.neuron.iloc[i].start_date-first_date).days+1] 
-            for i in range(len(subj.useful_clusters.neuron))])
-        dates = dates[dates[:, 0].argsort()]
-        
-        for i,d in enumerate(dates):
-            plt.broken_barh([d], [i,2], fc=SUBJECT_COLOR[subj.subject])
-            
-        plt.xlabel('Days')
-        plt.ylabel('Units')
-        # plt.yticks(np.arange(0, len(dates), 100),fontsize=5)
-    plt.subplots_adjust(wspace=0.3)
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, '[all]_units_by_first_appearance.svg'))
-    plt.show()
-    
-    
-def __plot_matched_units_statistics():
-
-    fig, ax = plt.subplots(figsize=(4,4))
-    for subj in [airp, braz]:
-        sns.scatterplot(data=subj.useful_clusters, x='duration', y='n_unit', 
-                        lw=1, fc='none', ec=SUBJECT_COLOR[subj.subject], 
-                        ax=ax, alpha=0.5, label=subj.subject)
-    ax.set_xlim([0,120])
-    ax.set_ylim([0,35])
-    ax.legend(frameon=False)
-    ax.set_xlabel('Duration (days)')
-    ax.set_ylabel('# unit in a cluster')
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, '[all]_cluster_statistics_scatter.svg'))
-    plt.show()
-    
-    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(4,4))
-    for subj in [airp, braz]:
-        ax[0].hist(subj.useful_clusters['duration'], bins=np.arange(0,120,5), density=True,
-                   ec='k', color=SUBJECT_COLOR[subj.subject])
-        ax[1].hist(subj.useful_clusters['n_unit'], bins=np.arange(0,35,2), density=True,
-                   ec='k', color=SUBJECT_COLOR[subj.subject])
-    ax[0].set_xlabel('Duration (days)')
-    ax[1].set_xlabel('# unit in a cluster')
-    ax[0].set_ylabel('Density')
-    ax[1].set_ylabel('Density')
-    fig.subplots_adjust(hspace=0.4)
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, '[all]_cluster_statistics_hist.svg'))
-    plt.show()
-
-        
-        
-def __plot_firing_rate_estimation(subj: Tracking):
-    
-    bmi = subj.raw_data[subj.sessions[0]]
-    spikes =  next(iter(bmi.pklfile['spks'].values()))
-    
-    window_size = 0.5 # window size in seconds
-    step_size = 0.05  # step size in seconds
-    
-    # Define time range for the analysis
-    time_bins = np.arange(0, max(spikes), step_size)
-    firing_rate = np.zeros_like(time_bins)
-    
-    # Compute firing rate for each window
-    for i, t in enumerate(time_bins):
-        count = np.sum((spikes >= t) & (spikes < t + window_size))
-        firing_rate[i] = count / window_size  # Rate in Hz (spikes per second)
-        
-    fig, ax = plt.subplots(figsize=(4,4))
-    ax.plot(time_bins, slide_avg(firing_rate, 20),label='Box', c='b', lw=0.5)
-    ax.plot(time_bins, gaussian(firing_rate, 6),label='Gauss', c='g', lw=0.5)
-    ax.plot(time_bins, gaussian(slide_avg(firing_rate, 20), 6),label='Gauss & Box', c='r', lw=0.5)
-    ax.eventplot(spikes, lineoffsets=4.5, color='k')
-    ax.set_xlim([0,25])
-    ax.set_ylim([-0.5,7.5])
-    ax.set_ylabel('Estimated firing rate\n(sp/s)')
-    ax.legend(frameon=False, loc='upper left')
-    ax.set_xlabel('Time (sec)')
-    
-
-def __plot_tuning_example():
-
-    subj = airp
-    cluster_ID = 554
-    u = 0
-
-    cluster_df = subj.clusters.neuron.iloc[cluster_ID].df
-    
-    session = cluster_df.session.iloc[u] 
-    unit_code = cluster_df.unit_code.iloc[u]
-    unit = cluster_df.unit.iloc[u]
-    
-    bmi = subj.raw_data[session]
-    spikes = bmi.pklfile['spks'][unit_code]
-    ind = bmi.index
-    
-    tuning = []
-    for angle in np.arange(0,360,45):
-        trial = ind[(ind['direction']==angle)&
-                    (ind['block_type']==1)&
-                    (ind['error_clamp']==0)]['trial_number']
-        align_pts = bmi.rpp_target[trial] / 30000
-        fr = [np.sum((start<spikes) & (spikes < start+0.5)) / 0.5 for start in align_pts]            
-        tuning.append(fr)
-    
-    directions_rad = np.deg2rad(np.arange(0,360,45))
-    true_fr = [np.mean(tune) for tune in tuning]
-    
-    (MD, PD, meanFR), pcov = curve_fit(
-        cosine_model, directions_rad, true_fr, 
-        p0=[10, 0, 10],
-        bounds=([0, -2*np.pi, -np.inf], [np.inf, 2*np.pi, np.inf])
-    )
-    
-    if PD < 0:
-        PD += 2*np.pi
-    
-    pred_fr = cosine_model(directions_rad, *(MD, PD, meanFR))
-    
-    # [Tuning curve for each unit]
-    theta_fine = np.linspace(0, 2 * np.pi, 360)
-    fitted_rates = cosine_model(theta_fine, *(MD, PD, meanFR))
-    
-    plt.figure(figsize=(4,4))
-    for i, angle in enumerate(np.arange(0,360,45)):
-        plt.errorbar(angle, np.mean(tuning[i]), 
-                     yerr=np.std(tuning[i])/np.sqrt(len(tuning[i])),
-                     fmt='o', 
-                     color=plt.cm.rainbow(u/len(cluster_df)))
-    plt.plot(np.rad2deg(theta_fine), fitted_rates, 
-             c='k',lw=2,ls='--',
-             label=unit)
-    plt.xlabel('Direction (degree)',fontsize=10)
-    plt.xticks(np.arange(0,361,90),fontsize=10)
-    plt.yticks(fontsize=10)
-    # plt.legend(frameon=False, fontsize=10, loc='upper left')
-    plt.ylabel('Firing rate (sp/s)',fontsize=10)
-    plt.title(f'MD: {MD:.2f}; PD: {np.rad2deg(PD):.2f}\nFR: {meanFR:.2f}, SSE: {np.sum((true_fr - pred_fr)**2):.2f}',fontsize=10)
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, '[airp]_tuning_example.svg'))
-    plt.show()
-
-        
-
-def __plot_matched_units_waveform(subj, cluster_ID):
-
-    matched_units = subj.useful_df[subj.useful_df['cluster_ID']==cluster_ID].sort_values(by='date').reset_index()
-    
-    block = subj.tuning_params.get('block_type')
-    duration = subj.tuning_params.get('duration')
-    title = f'[{subj.subject}] cluster {cluster_ID}\n Block {block} and duration {duration}'
-    
-    plt.figure(figsize=(5,5))
-    for u in range(len(matched_units)):
-        plt.plot(matched_units['waveform'].iloc[u],
-                 c=plt.cm.rainbow(u/len(matched_units)),
-                 label=matched_units['unit'].iloc[u])
-    plt.title(title)
-    plt.legend(frameon=False, bbox_to_anchor=(1,1), ncols=2)
-    plt.xticks([])
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_[{cluster_ID}]_matched_units_waveform.svg'))
-    plt.show()
-
-
-def __plot_matched_units_tuning_arrow(subj, cluster_ID):
-    
-    cluster_df = subj.useful_clusters[subj.useful_clusters['cluster_ID']==cluster_ID]['neuron'].iloc[0].df
-    title = f'[{subj.subject}] cluster {cluster_ID}'
-    
-    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}, figsize=(4,4))
-    ax.set_rmax(1)
-    ax.set_title(title)
-    for i in range(len(cluster_df)):
-        pds = cluster_df.PD.iloc[i]
-                
-        ax.annotate(
-            '', xy=(np.deg2rad(pds), 1), xytext=(0, 0),
-            arrowprops=dict(facecolor=plt.cm.rainbow(i/len(cluster_df)), 
-                            edgecolor=plt.cm.rainbow(i/len(cluster_df)), 
-                            shrink=0, width=1, headwidth=5, headlength=5))
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_[{cluster_ID}]_matched_units_tuning_polar.svg'))
-    plt.show()
-
-
-def __plot_PD_random_span(n_PD: int = 10, n_samples: int = 10000):
-    
-    dist = calc_random_span(n_PD,n_samples)
-    thres = np.percentile(dist, 5) # 0.05 significance level
-    
-    plt.figure(figsize=(4,4))
-    plt.hist(dist, bins=30, density=True)
-    plt.axvline(thres, c='r', ls='--', label=np.round(thres,3))
-    plt.legend(frameon=False, loc='upper left')
-    plt.xlim([np.min(dist)-30, None])
-    plt.title(f'{n_PD} PDs, random dist over {n_samples} samples')
-    plt.xlabel('PD span (angle)')
-    plt.ylabel('Prob density')
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, f'[none]_PD_random_span_[{n_PD}]_[{n_samples}].svg'))
-    plt.show()
-    
-
-def __plot_rsquared_distribution(subj):
-    """
-    Used in Spring 2025 meeting slides
-    """
-    df = subj.useful_clusters[['PD_r2','n_unit','PD_rate_pvalue']].copy()
-    df['corr'] = (df['PD_r2'] >= 0.6) 
-    df['sig'] = (df['PD_rate_pvalue'] < 0.05)
-    
-    
-    fig,ax = plt.subplots(figsize=(4,4))
-    sns.scatterplot(data=df, x='PD_r2', y='n_unit', hue='corr', style='sig', ax=ax, legend=None)
-    ax.set_xlabel('R_squared')
-    ax.set_ylabel('# units in a cluster')
-    ax.set_yticks(np.arange(3, np.max(df.n_unit)+1,2))
-    plt.title(subj.subject)
-    # plt.legend(frameon=False, loc='upper left')
-    plt.show()
-    
-    
-def __plot_metric_stability():
-    
-    metric_label_pair = {
-        # 'peak_after_amp': 'Peak amplitude (uV)',
-        # 'trough_amp': 'Trough amplitude (uV)',
-        'fr': 'Firing rate (sp/s)',
-        }
-    
-    df = []
-    for subj in [airp, braz]:
-        for used_metric in metric_label_pair.keys():
-            data = []
-            for i in range(len(subj.useful_clusters)):
-                units = subj.useful_clusters.neuron.iloc[i].units
-                first = subj.useful_df[subj.useful_df['unit']==units[0]][used_metric].iloc[0]
-                last = subj.useful_df[subj.useful_df['unit']==units[-1]][used_metric].iloc[0]
-                data.append((last - first) / first * 100)
-            df.append(pd.DataFrame({
-                'subject': subj.subject,
-                'metric': used_metric,
-                'value': data
-            }))
-    df = pd.concat(df).reset_index()
-    df = df[df['value'] < 600]
-    
-    fig, ax = plt.subplots(figsize=(2,4))
-    sns.violinplot(data=df, x='metric', y='value', split=True, hue='subject', gap=.1,
-                   density_norm="width", inner=None, ax=ax, cut=0)
-    # plt.xticks(np.arange(2), ['Peak amp','Trough amp'])
-    plt.xlabel(None)
-    plt.ylabel('Relative change (%)')
-    plt.legend(loc='upper left', frameon=False)
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, f'[all]_stability_[{used_metric}].svg'))
-    plt.show()
-    
-    for subj in [airp, braz]:
-        for metric in df.metric.unique():
-            dd = df.query(f'(metric=="{metric}") & (subject=="{subj.subject}")')
-            res = pg.ttest(dd.value, 0).squeeze()
-            pval = res['p-val']
-            effect_size = res['cohen-d']
-            print(subj.subject, metric, pval, effect_size)
-    
-
-def __plot_units_each_day():
-    
-    max_d = 0
-    plt.figure(figsize=(3,3))
-    for subj in [airp,braz]:
-        name = subj.subject 
-        data = subj.useful_df[['channel','date']].groupby('date').count()
-        counts = data.values.flatten()
-        counts = counts / np.max(counts) * 100
-        dates = list(map(lambda d: datetime.date(int(d[:4]), int(d[4:6]), int(d[6:8])), data.index))
-        days = [(dates[i]-dates[0]).days for i in range(len(dates))]
-        max_d = max(np.max(days), max_d)
-        plt.plot(days, counts, c=SUBJECT_COLOR[name],lw=0.5, label=name)
-        plt.scatter(days, counts, s=6, color=SUBJECT_COLOR[name])
-    
-    plt.xlabel('Days')
-    plt.ylabel('Percent of neuron counts (%)')
-    plt.ylim([0,100])
-    plt.xticks(np.arange(0,max_d,10), rotation=90)
-    plt.legend(frameon=False, loc='upper right')
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, '[all]_n_units_each_day.svg'))
-    plt.show()
-
-
-def __plot_dPD():
-    for subj in [airp, braz]:
-        res = []
-        for i in range(len(subj.useful_clusters)):
-            df = subj.useful_clusters.iloc[i]
-            neuron = df.neuron
-            PD = minimal_PD_change(neuron.df.PD.copy()) 
-            for i in np.diff(PD):
-                res.append(i)
-        # rand_diff = np.array([np.diff(np.random.random(2)*360)[0] for _ in range(len(res))])
-        # rand_diff[rand_diff > 180] -= 360
-        # rand_diff[rand_diff < -180] += 360
-        
-        plt.figure(figsize=(4,4))
-        plt.hist(res, bins=np.arange(-180,181,8), label=f'{subj.subject}')#, alpha=0.3, ec='k')
-        # plt.hist(rand_diff, bins=np.arange(-180,181,8), label='randomized', alpha=0.3, ec='k')
-        plt.xlabel('∆PD (deg)')
-        plt.ylabel('Counts')
-        plt.legend(frameon=False, loc='upper left')
-        plt.xticks([-180,-90,0,90,180])
-        if SAVEFIG:
-            plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_dPD.svg'))
-        plt.show()
-
-
-def __plot_significant_PD_span_counts():
-    
-    airp_sig = sum(airp.useful_clusters.PD_span_pval < 0.05)
-    airp_xsig = sum(airp.useful_clusters.PD_span_pval > 0.05)
-    braz_sig = sum(braz.useful_clusters.PD_span_pval < 0.05)
-    braz_xsig = sum(braz.useful_clusters.PD_span_pval > 0.05)
-    
-    plt.figure(figsize=(4,4))
-    plt.bar([0,0.4,1,1.4], [airp_sig,airp_xsig,braz_sig,braz_xsig],width=0.4,ec='k')
-    plt.xticks([0.2,1.2],['airp','braz'])
-    plt.ylabel('Counts')
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, '[all]_significant_PD_span_counts.svg'))
-    plt.show()
-
-
-def __plot_STA():
-    
-    subj = braz
-    for use_cluster in range(len(subj.useful_clusters)):    
-        example = subj.useful_clusters.iloc[use_cluster]
-        
-        plt.figure(figsize=(4,4))
-        for dur in range(example.n_unit):
-            session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[dur]
-            
-            bmi = subj.raw_data[session]
-            if not bmi.has_ns2:
-                continue
-            ns2 = bmi.ns2file
-            spike_times = bmi.pklfile['spks'].get(unit_code)
-            try:
-                lfp = ns2.getdata()['data'][channel]
-                fs = 1000
-        
-                beta = band_pass_filter(lfp, fs, 2, 30, 5)
-                window = (-0.3,0.3) # +/- 1 second
-                samples_window = (int(window[0] * fs), int(window[1] * fs))
-                segments = []
-                for spike in spike_times: # Using just the first 5000 spikes should be sufficient.
-                    spike_idx = int(spike * fs)
-                    if spike_idx + samples_window[0] >= 0 and spike_idx + samples_window[1] < len(lfp):
-                        segments.append(beta[spike_idx + samples_window[0]:spike_idx + samples_window[1]])
-                
-                sta = np.mean(segments, axis=0)
-                plt.plot(sta, c=plt.cm.rainbow(dur/example.n_unit), label=f'Day {example.days[dur]}')
-            except:
-                pass
-        plt.legend(frameon=False,bbox_to_anchor=(1,1))
-        plt.xticks([0,300,600],[-300,0,300])
-        plt.xlabel('Time (msec)')
-        plt.ylabel('Voltage (uV)')
-        if SAVEFIG:
-            plt.savefig(os.path.join(FIG_FOLDER, 'STA', f'[{subj.subject}]_sta_cluster_[{example.cluster_ID}].svg'))
-        plt.show()
-
-
-def __sanitycheck_firing_rate_estimation():
-    """
-    Making sure that fr is representative of the spike_times.    
-    """
-        
-    session, unit_code, channel = airp.useful_clusters.neuron.iloc[0].df[['session','unit_code','channel']].iloc[0]
-    
-    bmi = airp.raw_data[session]
-    ns2 = bmi.ns2file
-
-    spike_times = bmi.pklfile['spks'].get(unit_code)
-    fr = __calc_firing_rate(spike_times) # 20 Hz
-    lfp = ns2.getdata()['data'][channel]
-    
-    fr_time = np.arange(0, len(fr) / 20, 1 / 20)
-    lfp_time = np.arange(0, len(lfp) / 1000, 1 / 1000)
-    interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
-    fr = interp_func(lfp_time)
-
-    data = spike_times[100:500]
-    plt.eventplot(data)
-    plt.plot(lfp_time[int(data[0] * 1000):int(data[-1] * 1000)],
-             fr[int(data[0] * 1000):int(data[-1] * 1000)])
-    plt.show()
-    
-    
-
-def __deprecated_plv():
-
-    """
-    Phase-locking values. Not used in the paper.
-    """
-    n=0
-    fs=1000
-    example = braz.useful_clusters.iloc[0]
-    
-    session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[n]
-    print(session)
-    bmi = braz.raw_data[session]
-    
-    ns2 = bmi.ns2file
-    ind = bmi.index
-    
-    spike_times = bmi.pklfile['spks'].get(unit_code)
-    lfp = ns2.getdata()['data'][channel]
-    beta = band_pass_filter(lfp, fs=1000, low=12, high=30, order=5)
-    
-    hilb_field = signal.hilbert(beta)
-    lfp_phase = np.angle(hilb_field)
-    
-    # The indices where 
-    spike_indices = (spike_times * fs).astype(int)  # Convert spike times to indices
-    
-    trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] # All trials in the first block
-    align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
-    
-    phases = []
-    for ts in align_pts:
-        start, end = (ts - fs*0.5).astype(int), (ts + fs*0.5).astype(int)    
-        phases.extend(lfp_phase[spike_indices[(spike_indices > start) & (spike_indices < end)]])
-    
-    phases = np.array(phases)
-    phases = phases[~np.isnan(phases)]
-    
-    np.abs(np.mean(np.exp(1j * phases)))
-    
-    
-    # for i in range(len(subj.useful_clusters)):
-    i=0
-    example = braz.useful_clusters.iloc[i]
-    
-    for n in range(example.n_unit):
-        session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[n]
-        print(session)
-        bmi = braz.raw_data[session]
-        
-        ns2 = bmi.ns2file
-        ind = bmi.index
-        
-        spike_times = bmi.pklfile['spks'].get(unit_code)
-        lfp = ns2.getdata()['data'][channel]
-        beta = band_pass_filter(lfp, fs=1000, low=12, high=30, order=5)
-        
-        hilb_field = signal.hilbert(beta)
-        lfp_phase = np.angle(hilb_field)
-        
-        # The indices where 
-        spike_indices = (spike_times * fs).astype(int)  # Convert spike times to indices
-        
-        trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] # All trials in the first block
-        align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
-        
-        plv = []
-        
-        for ts in align_pts:
-        
-            start, end = (ts - fs*0.5).astype(int), (ts + fs*0.5).astype(int)
-            
-            # Choose spike indices between start and end
-            spike_indices[(spike_indices > start) & (spike_indices < end)]
-            
-            plv.append(np.abs(np.mean(np.exp(1j * lfp_phase[spike_indices[(spike_indices > start) & (spike_indices < end)]]))))
-            
-        plv_rand = []
-        for ts in (np.random.random(336) * 942419).astype(int):
-        
-            start, end = (ts - fs*0.5).astype(int), (ts + fs*0.5).astype(int)
-            spike_indices[(spike_indices > start) & (spike_indices < end)]# Choose spike indices between start and end
-            plv_rand.append(np.abs(np.mean(np.exp(1j * lfp_phase[spike_indices[(spike_indices > start) & (spike_indices < end)]]))))
-            
-        plt.figure(figsize=(4,4))
-        plt.hist(plv, bins=np.arange(0,0.6,0.02), ec='k', alpha=0.3, label='Aligned to movement')
-        plt.hist(plv_rand, bins=np.arange(0,0.6,0.02), ec='k', alpha=0.3, label='Randomized')
-        plt.xlabel('Phase locking values')
-        plt.ylabel('Counts')
-        plt.legend(frameon=False)
-        plt.show()
-
-    
-
-def __get_threshold(subj: Tracking, pct: float, PLOT: bool):
-    
-    """
-    Calculate the similarity threshold for determining matched units.
-
-    This function generates a null distribution of similarity scores by randomly pairing 
-    waveforms from different channels across sessions. The similarity metrics are 
-    aggregated, rescaled, and used to compute a total similarity score for each pair. 
-    A threshold is then determined based on the specified percentile of the null distribution.
-
-    Parameters:
-        subj (Tracking): The Tracking object containing the data and methods for 
-                         similarity calculations.
-        pct (float): The percentile value (e.g., 95 for 95th percentile) used to 
-                     define the similarity threshold.
-
-    Returns:
-        None: The function updates the threshold attribute of the Tracking object.
-    """
-
-
-    # Obtain the amount of units for each channel in each session.
-    # useful_channel is used to ensure there are at least 5 wavefroms
-    subj_ch_session = np.zeros((len(subj.useful_channel), len(subj.dates)))
-    for i, ch in enumerate(subj.useful_channel):
-        for j, date in enumerate(subj.dates):
-            subj_ch_session[i,j] = len(subj.useful_df[(subj.useful_df.date==date) & 
-                                                      (subj.useful_df.channel==ch)])
-    
-    loc = np.zeros((len(subj.dates), 2))
-    loc[:,1] = np.arange(len(subj.dates))
-    
-    threshold = []
-    
-    for it in range(200):
-        
-        print(f'{it} iteration')
-        run = 0
-        
-        dist = []
-        n_unit = []
-        
-        while len(dist) < 5000:
-            
-            run += 1        
-            loc[:,0] = random.sample(range(len(subj.useful_channel)), len(subj.dates))
-            
-            used_pair = []
-            for l in loc:
-                if subj_ch_session[int(l[0]), int(l[1])] != 0:
-                    used_pair.append((int(subj.useful_channel[int(l[0])]), 
-                                      subj.dates[int(l[1])]))
-            
-            sim_temp = np.zeros((2, len(used_pair), len(used_pair)))
-            for m, metric in enumerate(['correlation', 'euclidean']):
-                for i, (ch1, date1) in enumerate(used_pair):
-                    for j, (ch2, date2) in enumerate(used_pair):
-                        
-                        wf_s1 = subj.useful_df[(subj.useful_df['channel']==ch1)&(subj.useful_df['date']==date1)]['waveform']
-                        wf_s2 = subj.useful_df[(subj.useful_df['channel']==ch2)&(subj.useful_df['date']==date2)]['waveform']
-                        
-                        # Randomly pick one if > 1 unit in that channel.
-                        wf1 = wf_s1.iloc[random.randint(0, len(wf_s1)-1) if len(wf_s1) > 1 else 0]
-                        wf2 = wf_s2.iloc[random.randint(0, len(wf_s2)-1) if len(wf_s2) > 1 else 0]
-                        
-                        sim_temp[m,i,j] = subj.similarity(wf1, wf2, metric)
-                sim_temp[m] = subj.rescale(sim_temp[m], metric=metric)
-            total_temp = sim_temp.mean(axis=0)
-        
-            dist += [float(total_temp[i, j]) 
-                     for i in range(len(total_temp)) 
-                     for j in range(i + 1, len(total_temp))]
-            n_unit.append(len(total_temp))
-            
-            # if PLOT:
-            #     plt.figure(figsize=(5,5)) # Fig size (5,5) for airport, (7,10) for brazos
-            #     plt.pcolormesh(subj_ch_session,cmap='Greys', vmin=0, vmax=5)
-            #     plt.yticks(np.arange(len(subj.useful_channel)), subj.useful_channel, fontsize=5)
-            #     plt.xticks(np.arange(len(subj.dates)), subj.dates, rotation=90, fontsize=5)
-            #     plt.xlabel('Session', fontsize=5)
-            #     plt.ylabel('Channel', fontsize=5)
-            #     plt.grid(True, color='k', lw=0.1)
-                
-            #     for l in loc:
-            #         c = 'r' if subj_ch_session[int(l[0]), int(l[1])] == 0 else 'k'
-            #         plt.scatter(l[1]+0.5, l[0]+0.5, marker='s', c=c, s=5)
-            #     plt.show()
-                
-            #     plt.figure(figsize=(4,4))
-            #     plt.pcolormesh(total_temp, cmap='Greys', vmax=0.7, vmin=0)
-            #     plt.xticks([])
-            #     plt.yticks([])
-            #     if SAVEFIG:
-            #         plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_null_total_similarity.svg'))
-            #     plt.show()
-                
-        
-        thres = np.percentile(dist, pct)
-                
-        if PLOT:
-            plt.figure(figsize=(4,4))
-            plt.hist(dist, bins=80, density=True)
-            # plt.axvline(np.mean(dist), c='k', ls='--', label=f'Mean: {mean:.3f}')
-            plt.axvline(thres, c='r', ls='--', label=f'Threshold = {thres:.3f}')
-            plt.legend(frameon=False)
-            plt.xlabel('Total similarity')
-            plt.ylabel('Density')
-            if SAVEFIG:
-                plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_null_distribution_[{it}].svg'))
-            plt.show()
-            
-        threshold.append(thres)
-    
-    plt.figure(figsize=(4,4))
-    plt.hist(threshold, bins=30)
-    plt.xlabel('Similarity threshold')
-    plt.ylabel('Count')
-    plt.axvline(np.mean(threshold), c='k', ls='--', lw=2)
-    plt.title(f'Mean: {np.mean(threshold):.3f}, std: {np.std(threshold):.3f}')
-    if SAVEFIG:
-        plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_thresholds.svg'))
-    plt.show()
-
-# airp = Tracking('airp')
-braz = Tracking('braz')
-
-# read_lfp_later(airp)
-read_lfp_later(braz)
-
-#%% PLOTS
-
-__plot_units_each_day()
-
-fig,ax = plt.subplots(figsize=(4,4))
-airp.plot_channel_stats(ax)
-braz.plot_channel_stats(ax)
-ax.axhline(3, ls='--', c='k')
-if SAVEFIG:
-    plt.savefig(os.path.join(FIG_FOLDER, '[all]_n_units_each_channel.svg'))
-plt.show()
-
-airp.plot_example_cluster_algorithm()
-braz.plot_example_cluster_algorithm()
-
-__plot_units_by_first_appearance(subjs=[airp,braz])
-__plot_matched_units_statistics()
-__plot_metric_stability()
-
-
-cluster_ID = airp.useful_clusters.query('n_unit == 21').cluster_ID.values[0]
-airp.plot_cluster_PD_rate(cluster_ID)
-__plot_matched_units_tuning_arrow(airp, cluster_ID)
-__plot_matched_units_waveform(airp, cluster_ID)
-
-__plot_dPD()
-__plot_STA()
-
-#%% PLOTS - [Not very useful for paper]
-
-airp.plot_waveform_of_channel()
-braz.plot_waveform_of_channel()
-
-__plot_transformation_rescale(airp)
-__plot_transformation_rescale(braz)
-
-airp.plot_masked_similarity_matrix(example=39)
-braz.plot_masked_similarity_matrix()
-
-__plot_sorting_grouping(subjs=[airp,braz])
-
-
-airp.plot_waveform_of_all_matched_units()
-braz.plot_waveform_of_all_matched_units(example=115)
-
-__plot_firing_rate_estimation(airp)
-
-__plot_tuning_example()
-    
-x = braz.useful_clusters.n_unit.argmax()
-cluster_ID = braz.useful_clusters.iloc[x].cluster_ID
-__plot_matched_units_tuning_arrow(braz, cluster_ID)
-__plot_matched_units_waveform(braz,cluster_ID)
-
-
-#%% ISI
-
-
-for subj in [airp, braz]:
-
-    subj.useful_clusters['stable_isi'] = None
-    
-    for use_example in range(len(subj.useful_clusters)):
-        example = subj.useful_clusters.iloc[use_example]
-        example_cluster = example.neuron.df[['session','unit_code','channel']]
-        # fig, ax = plt.subplots(figsize=(4,4))
-        
-        CV = []
-        
-        for i in range(len(example_cluster)):
-            session, unit_code, channel = example_cluster.iloc[i]
-            
-            bmi = subj.raw_data[session]
-            spike_times = bmi.pklfile['spks'].get(unit_code)
-            
-            isi = np.diff(spike_times) * 1000
-            
-            CV.append(np.std(isi) / np.mean(isi))
-            
-            # sns.kdeplot(isi, ax=ax,log_scale=True, label=f'Day {example.days[i]}', color=plt.cm.rainbow(i/example.n_unit))
-            
-        # plt.xlabel('ISI (ms)')
-        # plt.legend(frameon=False)
-        # plt.title(f'[braz]_ISI_[{use_example}]')
-        # if SAVEFIG:
-        #     plt.savefig(os.path.join(FIG_FOLDER, f'[braz]_ISI_[{use_example}].svg'))
-        # plt.show()
-        
-        res = pg.ttest(CV, CV[0]) 
-        subj.useful_clusters.at[use_example, 'stable_isi'] = res['p-val'].iloc[0]
-        
-        
-airp_stable = sum(airp.useful_clusters.stable_isi > 0.05)
-airp_unstable = sum(airp.useful_clusters.stable_isi < 0.05)
-braz_stable = sum(braz.useful_clusters.stable_isi > 0.05)
-braz_unstable = sum(braz.useful_clusters.stable_isi < 0.05)
-
-plt.figure(figsize=(4,4))
-plt.bar([0,0.4,1,1.4], [airp_stable, airp_unstable, braz_stable, braz_unstable], width=0.4, ec='k')
-plt.xticks([0.2,1.2],['airp','braz'])
-plt.ylabel('Counts')
-plt.title(f'airp: {airp_stable / (airp_stable + airp_unstable) * 100 :.2f}%, braz: {braz_stable / (braz_stable + braz_unstable) * 100 :.2f}%')
-if SAVEFIG:
-    plt.savefig(os.path.join(FIG_FOLDER, '[all]_stable_isi.svg'))
-plt.show()
-    
-#%% ISI example
-
-example = airp.useful_clusters.iloc[49]
-example_cluster = example.neuron.df[['session','unit_code','channel']]
-# fig, ax = plt.subplots(figsize=(4,4))
-
-CV = []
-
-for i in range(len(example_cluster)):
-    session, unit_code, channel = example_cluster.iloc[i]
-    
-    bmi = subj.raw_data[session]
-    spike_times = bmi.pklfile['spks'].get(unit_code)
-    
-    isi = np.diff(spike_times) * 1000
-    
-    CV.append(np.std(isi) / np.mean(isi))
-
-
-plt.figure(figsize=(4,4))
-plt.scatter(example.days, CV, color='k')
-plt.plot(example.days, CV, c='k')
-plt.xlabel('Days')
-plt.ylabel('Coefficient of Variation')
-plt.ylim([0,2])
-if SAVEFIG:
-    plt.savefig(os.path.join(FIG_FOLDER, '[airp]_stable_isi_example.svg'))
-plt.show()
-
-#%% Drifting ISI examples
-
-ids = 49
-subj = airp
-example = subj.useful_clusters.iloc[ids]
-example_cluster = example.neuron.df[['session','unit_code','channel']]
-# fig, ax = plt.subplots(figsize=(4,4))
-
-CV = []
-
-for i in range(len(example_cluster)):
-    session, unit_code, channel = example_cluster.iloc[i]
-    
-    bmi = subj.raw_data[session]
-    spike_times = bmi.pklfile['spks'].get(unit_code)
-    
-    isi = np.diff(spike_times) * 1000
-    
-    CV.append(np.std(isi) / np.mean(isi))
-
-
-plt.figure(figsize=(4,4))
-plt.scatter(example.days, CV, color='k')
-plt.plot(example.days, CV, c='k')
-plt.xlabel('Days')
-plt.ylabel('Coefficient of Variation')
-plt.ylim([0,2])
-plt.title(f'{pg.ttest(CV, CV[0])["p-val"]}:.3f; {example.n_unit}')
-# if SAVEFIG:
-#     plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_unstable_isi_example_[{ids}].svg'))
-plt.show()
-
-
 #%% SFC
 
-def sfc_of_tracked_neuron(example: pd.Series, title: str, rand: bool = False):
+def sfc_of_tracked_neuron(subj: Tracking, example: pd.Series, title: str, rand: bool = False):
     """
     Plot trial-averaged SFC for each session in a tracked neuron.
     
@@ -3039,160 +2005,5 @@ def sfc_of_tracked_neuron(example: pd.Series, title: str, rand: bool = False):
         
         
     return np.array(coherograms), np.array(sessions)
-        
-    # plt.legend(frameon=False)
-    # plt.xlabel('Time from movement to target (sec)')
-    # plt.ylabel('Coherence')
-    # plt.title(title)
-    # sub_folder = 'SFC_rand' if rand else 'SFC'
-    # if SAVEFIG:
-    #     plt.savefig(os.path.join(FIG_FOLDER, sub_folder, f'{title}.svg'))
-    # plt.ylim([0, 0.4])
-    # plt.show()
-
-os.chdir(COHEROGRAM_FOLDER)
-
-for subj in [braz]: # For each subject
-
-    subj.useful_clusters['stable_sfc'] = None
-
-    for k in range(len(subj.useful_clusters)): # Go through each useful cluster
-        
-        print(f'Cluster [{k}]')
-        example = subj.useful_clusters.iloc[k]
-        title = f'[{subj.subject}]_SFC_[{k}]'
-        out, ses = sfc_of_tracked_neuron(example, title)
-            
-        if out.ndim > 1:
-            np.savetxt(f'{subj.subject}_c{k}_ses.csv', ses.T, delimiter=',', fmt='%s')
-            np.save(f'{subj.subject}_c{k}.npy', out)
-            print(f'{subj.subject}_c{k}: SFC saved.')
-            
-        else:
-            print(f'{subj.subject}_c{k}: Not enough data for SFC calculation.')
 
 
-
-
-
-#%%
-
-subj = braz
-
-
-phases, amps = [],[]
-for k in range(len(subj.useful_clusters)):  
-    print(f'Cluster [{k}]')
-    example = subj.useful_clusters.iloc[k]
-    
-    phase_this_neuron = []
-    amp_this_neuron = []
-    
-    phase_ref = None
-    amp_ref = None
-    
-    for n in range(example.n_unit):
-        session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[n]
-        
-        bmi = subj.raw_data[session]
-        ns2 = bmi.ns2file
-        spike_times = bmi.pklfile['spks'].get(unit_code)
-        try:
-            lfp = ns2.getdata()['data'][channel]
-            fs = 1000
-    
-            beta = band_pass_filter(lfp, fs, 2, 30, 3)
-            window = (-0.3,0.3) # +/- 1 second
-            samples_window = (int(window[0] * fs), int(window[1] * fs))
-            segments = []
-            for spike in spike_times: # Using just the first 5000 spikes should be sufficient.
-                spike_idx = int(spike * fs)
-                if spike_idx + samples_window[0] >= 0 and spike_idx + samples_window[1] < len(lfp):
-                    segments.append(beta[spike_idx + samples_window[0]: spike_idx + samples_window[1]])
-            
-            sta = np.mean(segments, axis=0)
-            sta = slide_avg(sta, 20)
-            hilb_field = signal.hilbert(sta)
-            lfp_phase = np.angle(hilb_field)
-            phase = lfp_phase[300]
-            amp = np.max(sta) - np.min(sta)
-            
-            if phase_ref is None:
-                phase_ref = phase
-                amp_ref = amp
-            
-            phase_this_neuron.append(phase - phase_ref)
-            amp_this_neuron.append(amp / amp_ref)
-            
-        except:
-            pass
-    
-    phases.extend(phase_this_neuron)
-    amps.extend(amp_this_neuron)
-
-#%%
-
-post_amp = np.log10(np.array(amps))
-post_phases = np.rad2deg(phases)
-
-post_phases[post_phases > 180] -= 360
-post_phases[post_phases < -180] += 360
-
-data = np.vstack((post_amp, post_phases)).T
-
-plt.figure(figsize=(4,4))
-plt.scatter(post_amp, post_phases, color='k', fc='none', ec='k', s=15, lw=0.5)
-plt.xlabel('Normalized log-scaled amplitude')
-plt.ylabel('Phase difference')
-plt.title(subj.subject)
-if SAVEFIG:
-    plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_stable_sta.svg'))
-plt.show()
-
-pg.multivariate_ttest(data, [0,0])
-
-
-
-
-#%% Percentages
-
-airp.useful_clusters[['stable_isi','PD_span_pval']]
-
-stable_isi = airp.useful_clusters[['stable_isi']]>0.05
-stable_pd = airp.useful_clusters[['PD_span_pval']]<0.05
-
-sum(stable_isi & stable_pd)
-
-#%%
-
-subj=airp
-df = subj.useful_clusters
-
-AB = len(df[(df['stable_isi'] > 0.05) & (df['PD_span_pval'] < 0.05)])
-Ab = len(df[(df['stable_isi'] > 0.05) & (df['PD_span_pval'] > 0.05)])
-aB = len(df[(df['stable_isi'] < 0.05) & (df['PD_span_pval'] < 0.05)])
-ab = len(df[(df['stable_isi'] < 0.05) & (df['PD_span_pval'] > 0.05)])
-
-
-plt.figure(figsize=(4,4))
-venn2([Ab,aB,AB])
-if SAVEFIG:
-    plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_venn.svg'))
-plt.show()
-
-
-#%%
-
-for subj in [airp, braz]:
-    res = []
-    for i in range(len(subj.useful_clusters)):
-        df = subj.useful_clusters.iloc[i]
-        neuron = df.neuron
-        PD = minimal_PD_change(neuron.df.PD.copy()) 
-        for i in np.diff(PD):
-            res.append(i)
-    # rand_diff = np.array([np.diff(np.random.random(2)*360)[0] for _ in range(len(res))])
-    # rand_diff[rand_diff > 180] -= 360
-    # rand_diff[rand_diff < -180] += 360
-    
-    print(pg.ttest(res, 0).squeeze())
