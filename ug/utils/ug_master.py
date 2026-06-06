@@ -31,19 +31,13 @@ UTILS_FOLDER = os.path.dirname(os.path.abspath(__file__))
 UG_FOLDER = os.path.dirname(UTILS_FOLDER)
 PROJECT_FOLDER = os.path.dirname(UG_FOLDER)
 DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
+INPUT_DATA_FOLDER = os.path.join(DATA_FOLDER, 'input_data')
 
 GITHUB_FOLDER = os.path.dirname(PROJECT_FOLDER)
 BMI_FOLDER = os.path.join(GITHUB_FOLDER, 'bmi_python')
 NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
 NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
-
-NEV_OUTPUT_FOLDER = r"F:\cole\neuron_tracking_nev_outputs\neuron_tracking_pkl_files"
-HDF_FOLDER = r"F:\cole\neuron_tracking_hdfs"
-MAT_FOLDER = r"F:\cole\neuron_tracking_syncHDF"
-DECODER_FOLDER = r"F:\cole\neuron_tracking_KFDecoder"
-COHERENCE_FOLDER = r"F:\ug_proj\coherences"
-COHEROGRAM_FOLDER = r"F:\ug_proj\coherences\coherograms"
 
 sys.path.insert(0,BMI_FOLDER)
 sys.path.insert(0,NS_FOLDER)
@@ -480,12 +474,12 @@ class BMI:
         self.session = session
         self.rotation = rotation
         self.file_prefix = os.path.join(PROJECT_FOLDER, 'data', self.session)
-        self.file_prefix_hdf = os.path.join(HDF_FOLDER, self.session)
+        self.file_prefix_hdf = os.path.join(INPUT_DATA_FOLDER, 'hdf', self.session)
         # print(self.file_prefix_hdf)
         self.file_prefix_ripple = os.path.join(save_folder, 'ripple', self.session)
-        self.file_prefix_nev_output = os.path.join(NEV_OUTPUT_FOLDER, self.session)
-        self.file_prefix_mat = os.path.join(MAT_FOLDER, self.session)
-        self.file_prefix_decoder = os.path.join(DECODER_FOLDER, self.session)
+        self.file_prefix_nev_output = os.path.join(INPUT_DATA_FOLDER, 'nev_output', self.session)
+        self.file_prefix_mat = os.path.join(INPUT_DATA_FOLDER, 'mat', self.session)
+        self.file_prefix_decoder = os.path.join(INPUT_DATA_FOLDER, 'decoder', self.session)
 
         
         # [Initiate different data files]
@@ -1907,6 +1901,188 @@ class Tracking:
         if SAVEFIG:
             plt.savefig(os.path.join(FIG_FOLDER, f'[{self.subject}]_example_cluster_algorithm_[masked].svg'))
         plt.show()
+
+#%% Unit-specific analyses
+class Spacial:
+
+    def __init__(self, subject: str, sessions: list[str], rotation: dict, save_folder: dict):
+
+        self.subject = subject
+        self.sessions = sessions
+        self.dates = [s[4:12] for s in self.sessions]
+        self.rotation = rotation
+        self.save_folder = save_folder
+        
+        print(f'[{self.subject}] Begin Spacial Analysis')
+        self.raw_data: BMI = None
+        self.raw_df = None
+        self.data_df = None
+        self.grouped_channel = None
+        self.useful_channel = None
+        self.useful_df = None 
+        self.read_sessions(parse=True)
+        self.read_data()
+        
+    def read_sessions(self, parse: bool = False):
+        """
+        Read all the sessions for that subject.
+        
+        Build self.raw_data, which is a dictionary that can be accessed through
+        
+            self.raw_data[self.sessions[i]]
+        """
+        data = dict()
+        for session in self.sessions:
+            task = BMI(session, self.save_folder[session], self.rotation[session])
+            # The parse parameter is False for default, but are set by read_full_data during init.
+            # Separating BMI init and parsing data can save time if want to debug BMI class.
+            if parse:
+                task.parse_behavior()
+                task.get_index()
+            data[session] = task
+            
+        self.raw_data = data
+        
+    
+    def read_data(self):
+        """
+        Read multiple data frames from the raw_data.
+        """
+        
+        # [[raw_df]] - all units from all sessions
+        dfs = []
+        for datum in self.raw_data.values():
+            df = pd.DataFrame(datum.pklfile, columns=['fr','ptt','wf'])
+            df['unit'] = datum.session + '_' + df.index
+            dfs.append(df)
+        self.raw_df = pd.concat(dfs)
+        
+        session,date,unit_code,channel,is_direct,rotation, = [],[],[],[],[],[]
+        for i in range(len(self.raw_df)):
+            s, d, c, u = parse_unit(self.raw_df['unit'].iloc[i])
+            try:
+                direct = u in self.raw_data[s].direct_units
+            except:
+                print(f"[{s}] - skipped direct units.")
+                direct = None
+            rot = self.raw_data[s].rotation_angle
+            session.append(s)
+            date.append(d)
+            channel.append(c)
+            unit_code.append(u)
+            is_direct.append(direct)
+            rotation.append(rot)
+            
+        metrics_df = self.raw_df.apply(self.calc_waveform_metrics, axis=1)
+        self.raw_df = pd.concat([self.raw_df, metrics_df], axis=1)
+        self.raw_df['session'] = session
+        self.raw_df['date'] = date
+        self.raw_df['channel'] = channel
+        self.raw_df['unit_code'] = unit_code
+        self.raw_df['is_direct'] = is_direct
+        self.raw_df['rotation'] = rotation
+        self.raw_df = self.raw_df[self.raw_df['channel']!=0] # Excluding V probes channels, see parse_unit().
+        self.raw_df['suggested'] = True
+        self.raw_df.loc[~((self.raw_df['fr']>1) & (self.raw_df['ptt']>=80)), 'suggested'] = False
+        
+        # [[data_df]] - the units that fits the criteria (fr>1 and peak-to-trough >= 80)
+        self.data_df = self.raw_df[self.raw_df['suggested']].reset_index(drop=True)
+        
+        # [[useful_df]] - the channels that have at least 5 units across all recordings.
+        grouped_channel = self.data_df[['waveform','channel']].groupby('channel').count().sort_values(by='waveform',ascending=False)
+        self.useful_channel = grouped_channel[grouped_channel['waveform']>=USEFUL_N_UNIT].index
+        unuseful_channel = grouped_channel[grouped_channel['waveform']<USEFUL_N_UNIT].index
+        self.useful_df = self.data_df.query(f'channel not in {list(unuseful_channel)}').drop(columns=['suggested','wf']).reset_index(drop=True)
+        self.useful_df['cluster_ID'] = np.nan # Create a cluster_ID column which will be set in get_clusters(). 
+        self.grouped_channel = self.useful_df[['waveform','channel']].groupby('channel').count().sort_values(by='waveform',ascending=False)
+
+    def unit_sfc(self, units: list[int], rand: bool = False):
+    
+        start_sec, end_sec = -1, 1
+        
+        coherograms = []
+        sessions = []
+        
+        for n in units: # For each neuron in a cluster
+            session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[n]
+            print(session)
+            sessions.append(session)
+
+            bmi = self.raw_data[session]
+            ns2 = bmi.ns2file
+            ind = bmi.index
+            
+            try:
+                spike_times = bmi.pklfile['spks'].get(unit_code) # Spike times
+                fs = 1000 # Sampling frequency
+        
+                lfp = ns2.getdata()['data'][channel] # Read LFP data
+                
+                # [Estimate firing rate] - upsampled to the same rate as LFP
+                fr = __calc_firing_rate(spike_times)
+                fr_time  = np.arange(0, len(fr) / 20, 1 / 20)
+                lfp_time = np.arange(0, len(lfp) / fs, 1 / fs)
+                interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
+                fr = interp_func(lfp_time)
+                
+                for block_type in ind['block_type'].unique(): # For each block type
+                    trial = ind[(ind['block_type']==block_type)&(ind['error_clamp']==0)] 
+                    align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
+                    
+                    # This is for randomized align_pts
+                    if rand: 
+                        align_pts = (np.random.random(len(align_pts)) * align_pts[-1]).astype(int)
+                    
+                    # Variable structures
+                    N_trials = len(align_pts)
+            
+                    N_pts = int(0.6*fs) # Use N_pts//2 data points to compute spectrum
+                    N_freqs = N_pts//2 + 1 # So we have N_freqs of frequency for the spectrums
+                    f = np.fft.rfftfreq(N_pts, 1/fs)
+                    
+                    # Divide the aligned period (from start_sec to end_sec around align_pts) into N_timesteps sections
+                    N_timesteps = 100
+                    t = np.linspace(start_sec, end_sec, N_timesteps)
+                    
+                    # Create a matrix to store all the detailed align points
+                    fine_align_pts = np.zeros((N_trials, N_timesteps), dtype=int)
+                    for t in range(N_trials):
+                        fine_align_pts[t] = np.linspace(align_pts[t] + start_sec * fs, 
+                                                        align_pts[t] + end_sec * fs, 
+                                                        N_timesteps, 
+                                                        dtype=int)
+                    
+                    coherogram_block = np.zeros((N_timesteps, N_freqs))
+                    for ts in range(N_timesteps): # Iterate through each time step
+                        Sxx = np.zeros(int(N_pts/2+1)) # Field spectrum.
+                        Syy = np.zeros(int(N_pts/2+1)) # Spike spectrum.
+                        Sxy = np.zeros(int(N_pts/2+1), dtype=complex) # Cross spectrum.
+                    
+                        for t in range(N_trials):
+                            pt = fine_align_pts[t, ts] # The align point
+                            
+                            # Take N_pts around pt to calculate coherence
+                            field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
+                            spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
+                            sxx, syy, sxy = ug.calc_spectrum(spike_raw, field_raw, fs=1000)
+                            
+                            # Directly adding the averaged values
+                            Sxx += (sxx / N_trials)
+                            Syy += (syy / N_trials)
+                            Sxy += (sxy / N_trials)
+                        
+                        cohr = abs(Sxy) / np.sqrt(Syy) / np.sqrt(Sxx)
+                        coherogram_block[ts] = cohr
+                    coherogram_session.append(coherogram_block)
+                    
+                    
+                coherograms.append(coherogram)
+
+            except:
+                pass
+            
+            
+        return np.array(coherograms), np.array(sessions)
 
 #%% SFC
 

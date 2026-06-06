@@ -1,4 +1,8 @@
 .DS_Store
 *.csv
 *.npy
+*KFDecoder.pkl
+*.hdf
+*syncHDF.mat
+*nev_output.pkl
 /.vscode
