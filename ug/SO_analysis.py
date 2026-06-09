@@ -88,4 +88,5 @@ ug.read_lfp_later(airp)
 #%% Generate unit-specific SFC coherograms per trial. 
 # Generate unit-specific SFC coherograms per trial for each useful cluster in the Spacial objects.
 useful_channels = airp.useful_channel
-airp.unit_sfc(channels=useful_channels[0:10])
+ug.unit_sfc(subj=airp, channels=useful_channels[0:10])
+# %%

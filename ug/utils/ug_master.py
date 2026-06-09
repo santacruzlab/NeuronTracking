@@ -1904,6 +1904,101 @@ class Tracking:
             plt.savefig(os.path.join(FIG_FOLDER, f'[{self.subject}]_example_cluster_algorithm_[masked].svg'))
         plt.show()
 
+def sfc_of_tracked_neuron(subj: Tracking, example: pd.Series, title: str, rand: bool = False):
+    """
+    Plot trial-averaged SFC for each session in a tracked neuron.
+    
+    example: usage like airp.useful_clusters.iloc[0]
+    title: for the title and the saved filename
+    rand: if this is to randomized aligned points.   
+    
+    """
+    
+    start_sec, end_sec = -1, 1
+    
+    # plt.figure(figsize=(4,4)) # Each line is data from a neuron
+    
+    coherograms = []
+    sessions = []
+    
+    for n in range(example.n_unit): # For each neuron in a cluster
+        session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[n]
+        print(session)
+        sessions.append(session)
+
+        bmi = subj.raw_data[session]
+        ns2 = bmi.ns2file
+        ind = bmi.index
+        
+        try:
+            spike_times = bmi.pklfile['spks'].get(unit_code) # Spike times
+            fs = 1000 # Sampling frequency
+    
+            lfp = ns2.getdata()['data'][channel] # Read LFP data
+            
+            # [Estimate firing rate] - upsampled to the same rate as LFP
+            fr = __calc_firing_rate(spike_times)
+            fr_time  = np.arange(0, len(fr) / 20, 1 / 20)
+            lfp_time = np.arange(0, len(lfp) / fs, 1 / fs)
+            interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
+            fr = interp_func(lfp_time)
+            
+            # All non-error-clamped trials in the first block
+            trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] 
+            align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
+            
+            # This is for randomized align_pts
+            if rand: 
+                align_pts = (np.random.random(len(align_pts)) * align_pts[-1]).astype(int)
+            
+            # Variable structures
+            N_trials = len(align_pts)
+    
+            N_pts = int(0.6*fs) # Use N_pts//2 data points to compute spectrum
+            N_freqs = N_pts//2 + 1 # So we have N_freqs of frequency for the spectrums
+            f = np.fft.rfftfreq(N_pts, 1/fs)
+            
+            # Divide the aligned period (from start_sec to end_sec around align_pts) into N_timesteps sections
+            N_timesteps = 100
+            t = np.linspace(start_sec, end_sec, N_timesteps)
+            
+            # Create a matrix to store all the detailed align points
+            fine_align_pts = np.zeros((N_trials, N_timesteps), dtype=int)
+            for t in range(N_trials):
+                fine_align_pts[t] = np.linspace(align_pts[t] + start_sec * fs, 
+                                                align_pts[t] + end_sec * fs, 
+                                                N_timesteps, 
+                                                dtype=int)
+            
+            coherogram = np.zeros((N_timesteps, N_freqs))
+            for ts in range(N_timesteps): # Iterate through each time step
+                Sxx = np.zeros(int(N_pts/2+1)) # Field spectrum.
+                Syy = np.zeros(int(N_pts/2+1)) # Spike spectrum.
+                Sxy = np.zeros(int(N_pts/2+1), dtype=complex) # Cross spectrum.
+            
+                for t in range(N_trials):
+                    pt = fine_align_pts[t, ts] # The align point
+                    
+                    # Take N_pts around pt to calculate coherence
+                    field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
+                    spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
+                    sxx, syy, sxy = calc_spectrum(spike_raw, field_raw, fs=1000)
+                    
+                    # Directly adding the averaged values
+                    Sxx += (sxx / N_trials)
+                    Syy += (syy / N_trials)
+                    Sxy += (sxy / N_trials)
+                
+                cohr = abs(Sxy) / np.sqrt(Syy) / np.sqrt(Sxx)
+                coherogram[ts] = cohr
+            
+            coherograms.append(coherogram)
+
+        except:
+            pass
+        
+        
+    return np.array(coherograms), np.array(sessions)
 #%% Unit-specific analyses
 class Spacial:
 
@@ -2014,6 +2109,43 @@ class Spacial:
             "inverted": inverted,
         }
         return pd.Series(metrics)
+    
+    def calc_firing_rate(array):
+        """
+        
+        For testing purpose, try the following script.
+        
+            subj = braz
+            bmi = subj.raw_data[subj.sessions[0]]
+            
+            hdf = bmi.hdffile
+            mat = bmi.matfile
+            
+            fr = []
+            
+            for key,value in bmi.pklfile['spks'].items():
+                print(key)
+                fr.append(calc_firing_rate(value))
+        
+        """
+        window_size = 0.5 # window size in seconds
+        step_size = 0.05  # step size in seconds
+        box_size = 20
+        kernel_size = 1
+        
+        
+        # Define time range for the analysis
+        time_bins = np.arange(0, max(array), step_size)
+        firing_rate = np.zeros_like(time_bins)
+        
+        # Compute firing rate for each window
+        for i, t in enumerate(time_bins):
+            count = np.sum((array >= t) & (array < t + window_size))
+            firing_rate[i] = count / window_size  # Rate in Hz (spikes per second)
+        
+        firing_rate = gaussian(slide_avg(firing_rate, box_size), kernel_size)
+
+        return firing_rate
         
     def read_sessions(self, parse: bool = False):
         """
@@ -2087,199 +2219,101 @@ class Spacial:
         self.useful_df = self.data_df.query(f'channel not in {list(unuseful_channel)}').drop(columns=['suggested','wf']).reset_index(drop=True)
         self.grouped_channel = self.useful_df[['waveform','channel']].groupby('channel').count().sort_values(by='waveform',ascending=False)
 
-    def unit_sfc(self, channels: list[int] = None, rand: bool = False):
-    
-        start_sec, end_sec = -1, 1
-        fs = 1000 # Sampling frequency
+def unit_sfc(subj: Spacial, channels: list[int] = None, rand: bool = False):
 
-        N_pts = int(0.6*fs) # Use N_pts//2 data points to compute spectrum
-        N_freqs = N_pts//2 + 1 # So we have N_freqs of frequency for the spectrums
-        f = np.fft.rfftfreq(N_pts, 1/fs)
-                        
-        # Divide the aligned period (from start_sec to end_sec around align_pts) into N_timesteps sections
-        N_timesteps = 100
-        t = np.linspace(start_sec, end_sec, N_timesteps)
-        
-        if channels is None:
-            channels = list(self.useful_channel) # If no specific channels are provided, use all useful channels.
-            
-        with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'{self.subject}_sfc.h5'), 'a') as h5file:
-            h5file.attrs['start_sec'] = start_sec
-            h5file.attrs['end_sec'] = end_sec
-            h5file.attrs['fs'] = fs
-            h5file.attrs['freqs'] = f
-            h5file.attrs['timesteps'] = t
-            
-            for session in self.sessions: # For each selected channel
-                print(session)
-
-                bmi = self.raw_data[session]
-                ns2 = bmi.ns2file
-                ind = bmi.index
-                
-                session_df = self.useful_df[self.useful_df['session'] == session]
-
-                for channel in session_df['channel'].unique(): 
-
-                    if channel not in channels:
-                        continue
-                    
-                    lfp = ns2.getdata()['data'][channel] # Read LFP data
-                    unit_codes = session_df[(session_df['channel'] == channel) & session_df['is_direct'] == True]['unit_code'].unique()
-                    for unit_code in unit_codes:
-                        spike_times = bmi.pklfile['spks'].get(unit_code) # Spike times
-
-                        # [Estimate firing rate] - upsampled to the same rate as LFP
-                        fr = __calc_firing_rate(spike_times)
-                        fr_time  = np.arange(0, len(fr) / 20, 1 / 20)
-                        lfp_time = np.arange(0, len(lfp) / fs, 1 / fs)
-                        interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
-                        fr = interp_func(lfp_time)
-
-                        # All non-error-clamped trials in the first block
-                        trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] 
-                        align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
-                        
-                        # This is for randomized align_pts
-                        if rand: 
-                            align_pts = (np.random.random(len(align_pts)) * align_pts[-1]).astype(int)
-                        
-                        # Variable structures
-                        N_trials = len(align_pts)
-                        
-                        # Create a matrix to store all the detailed align points
-                        fine_align_pts = np.zeros((N_trials, N_timesteps), dtype=int)
-                        for t in range(N_trials):
-                            fine_align_pts[t] = np.linspace(align_pts[t] + start_sec * fs, 
-                                                            align_pts[t] + end_sec * fs, 
-                                                            N_timesteps, 
-                                                            dtype=int)
-                        
-                        coherogram = np.zeros((N_timesteps, N_freqs))
-                        for ts in range(N_timesteps): # Iterate through each time step
-                            Sxx = np.zeros(int(N_pts/2+1)) # Field spectrum.
-                            Syy = np.zeros(int(N_pts/2+1)) # Spike spectrum.
-                            Sxy = np.zeros(int(N_pts/2+1), dtype=complex) # Cross spectrum.
-                        
-                            for t in range(N_trials):
-                                pt = fine_align_pts[t, ts] # The align point
-                                
-                                # Take N_pts around pt to calculate coherence
-                                field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
-                                spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
-                                sxx, syy, sxy = calc_spectrum(spike_raw, field_raw, fs=1000)
-                                
-                                # Directly adding the averaged values
-                                Sxx += (sxx / N_trials)
-                                Syy += (syy / N_trials)
-                                Sxy += (sxy / N_trials)
-                            
-                            cohr = abs(Sxy) / np.sqrt(Syy) / np.sqrt(Sxx)
-                            coherogram[ts] = cohr
-                        
-                        path = f'{session}/ch_{channel}/unit_{unit_code}'
-                        grp = h5file.require_group(path)
-                        if "coherogram" in grp:
-                            del grp["coherogram"]  # Delete existing dataset if it exists
-                        grp.create_dataset("coherogram", data=coherogram, compression="gzip", compression_opts=4, chunks=True)
-
-
-#%% SFC
-
-def sfc_of_tracked_neuron(subj: Tracking, example: pd.Series, title: str, rand: bool = False):
-    """
-    Plot trial-averaged SFC for each session in a tracked neuron.
-    
-    example: usage like airp.useful_clusters.iloc[0]
-    title: for the title and the saved filename
-    rand: if this is to randomized aligned points.   
-    
-    """
-    
     start_sec, end_sec = -1, 1
-    
-    # plt.figure(figsize=(4,4)) # Each line is data from a neuron
-    
-    coherograms = []
-    sessions = []
-    
-    for n in range(example.n_unit): # For each neuron in a cluster
-        session, unit_code, channel = example.neuron.df[['session','unit_code','channel']].iloc[n]
-        print(session)
-        sessions.append(session)
+    fs = 1000 # Sampling frequency
 
-        bmi = subj.raw_data[session]
-        ns2 = bmi.ns2file
-        ind = bmi.index
+    N_pts = int(0.6*fs) # Use N_pts//2 data points to compute spectrum
+    N_freqs = N_pts//2 + 1 # So we have N_freqs of frequency for the spectrums
+    f = np.fft.rfftfreq(N_pts, 1/fs)
+                    
+    # Divide the aligned period (from start_sec to end_sec around align_pts) into N_timesteps sections
+    N_timesteps = 100
+    t = np.linspace(start_sec, end_sec, N_timesteps)
+    
+    if channels is None:
+        channels = list(subj.useful_channel) # If no specific channels are provided, use all useful channels.
         
-        try:
-            spike_times = bmi.pklfile['spks'].get(unit_code) # Spike times
-            fs = 1000 # Sampling frequency
-    
-            lfp = ns2.getdata()['data'][channel] # Read LFP data
+    with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc.h5'), 'a') as h5file:
+        h5file.attrs['start_sec'] = start_sec
+        h5file.attrs['end_sec'] = end_sec
+        h5file.attrs['fs'] = fs
+        h5file.attrs['freqs'] = f
+        h5file.attrs['timesteps'] = t
+        
+        for session in subj.sessions: # For each selected channel
+            print(session)
+
+            bmi = subj.raw_data[session]
+            ns2 = bmi.ns2file
+            ind = bmi.index
             
-            # [Estimate firing rate] - upsampled to the same rate as LFP
-            fr = __calc_firing_rate(spike_times)
-            fr_time  = np.arange(0, len(fr) / 20, 1 / 20)
-            lfp_time = np.arange(0, len(lfp) / fs, 1 / fs)
-            interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
-            fr = interp_func(lfp_time)
-            
-            # All non-error-clamped trials in the first block
-            trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] 
-            align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
-            
-            # This is for randomized align_pts
-            if rand: 
-                align_pts = (np.random.random(len(align_pts)) * align_pts[-1]).astype(int)
-            
-            # Variable structures
-            N_trials = len(align_pts)
-    
-            N_pts = int(0.6*fs) # Use N_pts//2 data points to compute spectrum
-            N_freqs = N_pts//2 + 1 # So we have N_freqs of frequency for the spectrums
-            f = np.fft.rfftfreq(N_pts, 1/fs)
-            
-            # Divide the aligned period (from start_sec to end_sec around align_pts) into N_timesteps sections
-            N_timesteps = 100
-            t = np.linspace(start_sec, end_sec, N_timesteps)
-            
-            # Create a matrix to store all the detailed align points
-            fine_align_pts = np.zeros((N_trials, N_timesteps), dtype=int)
-            for t in range(N_trials):
-                fine_align_pts[t] = np.linspace(align_pts[t] + start_sec * fs, 
-                                                align_pts[t] + end_sec * fs, 
-                                                N_timesteps, 
-                                                dtype=int)
-            
-            coherogram = np.zeros((N_timesteps, N_freqs))
-            for ts in range(N_timesteps): # Iterate through each time step
-                Sxx = np.zeros(int(N_pts/2+1)) # Field spectrum.
-                Syy = np.zeros(int(N_pts/2+1)) # Spike spectrum.
-                Sxy = np.zeros(int(N_pts/2+1), dtype=complex) # Cross spectrum.
-            
-                for t in range(N_trials):
-                    pt = fine_align_pts[t, ts] # The align point
-                    
-                    # Take N_pts around pt to calculate coherence
-                    field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
-                    spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
-                    sxx, syy, sxy = calc_spectrum(spike_raw, field_raw, fs=1000)
-                    
-                    # Directly adding the averaged values
-                    Sxx += (sxx / N_trials)
-                    Syy += (syy / N_trials)
-                    Sxy += (sxy / N_trials)
+            session_df = subj.useful_df[subj.useful_df['session'] == session]
+
+            for channel in session_df['channel'].unique(): 
+
+                if channel not in channels:
+                    continue
                 
-                cohr = abs(Sxy) / np.sqrt(Syy) / np.sqrt(Sxx)
-                coherogram[ts] = cohr
-            
-            coherograms.append(coherogram)
+                lfp = ns2.getdata()['data'][channel] # Read LFP data
+                unit_codes = session_df[(session_df['channel'] == channel) & session_df['is_direct'] == True]['unit_code'].unique()
+                for unit_code in unit_codes:
+                    spike_times = bmi.pklfile['spks'].get(unit_code) # Spike times
 
-        except:
-            pass
-        
-        
-    return np.array(coherograms), np.array(sessions)
+                    # [Estimate firing rate] - upsampled to the same rate as LFP
+                    fr = __calc_firing_rate(spike_times)
+                    fr_time  = np.arange(0, len(fr) / 20, 1 / 20)
+                    lfp_time = np.arange(0, len(lfp) / fs, 1 / fs)
+                    interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
+                    fr = interp_func(lfp_time)
+
+                    # All non-error-clamped trials in the first block
+                    trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] 
+                    align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
+                    
+                    # This is for randomized align_pts
+                    if rand: 
+                        align_pts = (np.random.random(len(align_pts)) * align_pts[-1]).astype(int)
+                    
+                    # Variable structures
+                    N_trials = len(align_pts)
+                    
+                    # Create a matrix to store all the detailed align points
+                    fine_align_pts = np.zeros((N_trials, N_timesteps), dtype=int)
+                    for t in range(N_trials):
+                        fine_align_pts[t] = np.linspace(align_pts[t] + start_sec * fs, 
+                                                        align_pts[t] + end_sec * fs, 
+                                                        N_timesteps, 
+                                                        dtype=int)
+                    
+                    coherogram = np.zeros((N_timesteps, N_freqs))
+                    for ts in range(N_timesteps): # Iterate through each time step
+                        Sxx = np.zeros(int(N_pts/2+1)) # Field spectrum.
+                        Syy = np.zeros(int(N_pts/2+1)) # Spike spectrum.
+                        Sxy = np.zeros(int(N_pts/2+1), dtype=complex) # Cross spectrum.
+                    
+                        for t in range(N_trials):
+                            pt = fine_align_pts[t, ts] # The align point
+                            
+                            # Take N_pts around pt to calculate coherence
+                            field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
+                            spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
+                            sxx, syy, sxy = calc_spectrum(spike_raw, field_raw, fs=1000)
+                            
+                            # Directly adding the averaged values
+                            Sxx += (sxx / N_trials)
+                            Syy += (syy / N_trials)
+                            Sxy += (sxy / N_trials)
+                        
+                        cohr = abs(Sxy) / np.sqrt(Syy) / np.sqrt(Sxx)
+                        coherogram[ts] = cohr
+                    
+                    path = f'{session}/ch_{channel}/unit_{unit_code}'
+                    grp = h5file.require_group(path)
+                    if "coherogram" in grp:
+                        del grp["coherogram"]  # Delete existing dataset if it exists
+                    grp.create_dataset("coherogram", data=coherogram, compression="gzip", compression_opts=4, chunks=True)
+
 
 
