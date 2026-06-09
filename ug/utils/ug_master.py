@@ -2287,33 +2287,25 @@ def unit_sfc(subj: Spacial, channels: list[int] = None, rand: bool = False):
                                                         N_timesteps, 
                                                         dtype=int)
                     
-                    coherogram = np.zeros((N_timesteps, N_freqs))
-                    for ts in range(N_timesteps): # Iterate through each time step
-                        Sxx = np.zeros(int(N_pts/2+1)) # Field spectrum.
-                        Syy = np.zeros(int(N_pts/2+1)) # Spike spectrum.
-                        Sxy = np.zeros(int(N_pts/2+1), dtype=complex) # Cross spectrum.
-                    
-                        for t in range(N_trials):
-                            pt = fine_align_pts[t, ts] # The align point
+                    for tr in range(N_trials): # Iterate through each time step
+                        coherogram = np.zeros((N_timesteps, N_freqs))
+
+                        for ts in range(N_timesteps):
+                            pt = fine_align_pts[tr, ts] # The align point
                             
                             # Take N_pts around pt to calculate coherence
                             field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
                             spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
                             sxx, syy, sxy = calc_spectrum(spike_raw, field_raw, fs=1000)
-                            
-                            # Directly adding the averaged values
-                            Sxx += (sxx / N_trials)
-                            Syy += (syy / N_trials)
-                            Sxy += (sxy / N_trials)
-                        
-                        cohr = abs(Sxy) / np.sqrt(Syy) / np.sqrt(Sxx)
-                        coherogram[ts] = cohr
-                    
-                    path = f'{session}/ch_{channel}/unit_{unit_code}'
-                    grp = h5file.require_group(path)
-                    if "coherogram" in grp:
-                        del grp["coherogram"]  # Delete existing dataset if it exists
-                    grp.create_dataset("coherogram", data=coherogram, compression="gzip", compression_opts=4, chunks=True)
+
+                            cohr = abs(sxy) / np.sqrt(syy) / np.sqrt(sxx)
+                            coherogram[ts] = cohr
+
+                        path = f'{session}/ch_{channel}/unit_{unit_code}/trial_{tr}'
+                        grp = h5file.require_group(path)
+                        if "coherogram" in grp:
+                            del grp["coherogram"]  # Delete existing dataset if it exists
+                        grp.create_dataset("coherogram", data=coherogram, compression="gzip", compression_opts=4, chunks=True)
 
 
 
