@@ -1,6 +1,7 @@
 #%% Imports and constants for UG analysis
 # Run imports and constants for UG analysis. 
 import sys
+import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -16,6 +17,7 @@ from scipy.signal import spectrogram
 UG_FOLDER = os.path.dirname(os.path.abspath(__file__))
 PROJECT_FOLDER = os.path.dirname(UG_FOLDER)
 DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
+OUTPUT_DATA_FOLDER = os.path.join(DATA_FOLDER, 'output_data')
 
 from utils import sessions as ses
 from utils import ug_master as ug
@@ -89,4 +91,11 @@ ug.read_lfp_later(airp)
 # Generate unit-specific SFC coherograms per trial for each useful cluster in the Spacial objects.
 useful_channels = airp.useful_channel
 ug.unit_sfc(subj=airp, channels=useful_channels[0:10])
+# %%
+
+with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'airp_sfc.h5'), 'r') as h5file:
+    path = f"{SESSIONS['airp'][0]}"
+    # h5file.visit(print)  # Print all paths in the HDF5 file
+    coh = h5file["airp20220324_04_te2111/ch_35/unit_259b/trial_319/coherogram"][:]
+
 # %%
