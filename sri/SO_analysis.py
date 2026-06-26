@@ -19,6 +19,7 @@ SRI_FOLDER = os.path.dirname(os.path.abspath(__file__))
 PROJECT_FOLDER = os.path.dirname(SRI_FOLDER)
 DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
 OUTPUT_DATA_FOLDER = os.path.join(DATA_FOLDER, 'output_data')
+FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'figs')
 
 print(os.getcwd())
 
@@ -49,7 +50,7 @@ ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
 #                     save_folder=SAVE_FOLDER)
 
 braz = sri.Tracking('braz', 
-                    sessions=SESSIONS['braz'], 
+                    sessions=SESSIONS['braz'][0:11], 
                     rotation=ROTATION, 
                     save_folder=SAVE_FOLDER)
 
@@ -200,7 +201,7 @@ for subj in [braz]: # For each subject
             print(f'Cluster {cluster.cluster_ID} on channel {cluster.channel}: {clusters.index.get_loc(cluster.Index)+1}/{len(clusters)}')
             out, ses = sfc_of_tracked_neuron(subj, cluster)
             
-            path = f'{cluster.channel}/cluster_{cluster.cluster_ID}' 
+            path = f'{cluster.channel}/{cluster.cluster_ID}' 
             grp = h5file.require_group(path)
             if "coherograms" in grp:
                 del grp["coherograms"]  # Delete existing dataset if it exists
@@ -209,6 +210,49 @@ for subj in [braz]: # For each subject
             if "sessions" in grp:
                 del grp["sessions"]  # Delete existing dataset if it exists
             grp.create_dataset("sessions", data=ses.astype('S'))  # Store sessions as bytes
+
+# %%
+os.chdir(FIG_FOLDER)
+
+with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
+    # h5file.visit(print)  # Print all paths in the HDF5 file
+    for channel in h5file.keys():
+        print(f'Channel: {channel}')
+        for cluster in h5file[channel].keys():
+            print(f'  Cluster: {cluster}')
+            coherograms = h5file[f'{channel}/{cluster}/coherograms'][:]
+            sessions = h5file[f'{channel}/{cluster}/sessions'][:]
+            print(f'    Coherograms shape: {coherograms.shape}')
+            print(f'    Sessions: {[s.decode("utf-8") for s in sessions]}')  # Decode bytes to string
+
+            num_plots = coherograms.shape[0]
+
+            f_bands = ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+            c_f_bands = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
+
+            fig, axes = plt.subplots(num_plots, 1, figsize=(10, 4 * num_plots))
+            
+            for i in range(num_plots):
+                x = np.arange(coherograms.shape[1]) + 1
+
+                for j in range(coherograms.shape[2]):
+                    y = coherograms[i, :, j]
+                    axes[i].plot(x, y, color=c_f_bands[j], label=f'{f_bands[j]}')
+                    y_mean = np.mean(y[~np.isnan(y)]);
+                    axes[i].axhline(y=y_mean, color=c_f_bands[j], linestyle='--')
+                    if j == 0:
+                        axes[i].text(axes[i].get_xlim()[1], y_mean, s=f'{y_mean:.2f}', color = c_f_bands[j], va='bottom', ha='right')
+
+                axes[i].set_ylim(0, 0.7)
+                axes[i].set_title(f'Cluster {cluster} - Session {sessions[i].decode("utf-8")}')
+                axes[i].set_xlabel('Trial Number')
+                axes[i].legend()
+
+            plt.tight_layout()
+            plt.savefig(f'Channel_{channel}_{cluster}')
+            
+            
+            
 
 #%% Generate trial-averaged SFC coherograms for useful clusters in the tracking objects.
 # Generate SFC coherograms for each useful cluster in the tracking objects.
@@ -235,14 +279,4 @@ for subj in [braz]: # For each subject
         else:
             print(f'{subj.subject}_c{k}: Not enough data for SFC calculation.')
 
-# %%
 
-with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
-    # path = f"{SESSIONS['airp'][0]}"
-    h5file.visit(print)  # Print all paths in the HDF5 file
-    # coh = h5file["111/cluster_169/coherograms"]
-    # print(coh.shape)
-    # print(coh[0].shape)  # Print the first coherogram
-    # print(coh[0][0])  # Print the first coherogram data
-
-# %%

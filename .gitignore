@@ -5,6 +5,6 @@
 *.hdf
 *syncHDF.mat
 *nev_output.pkl
+*.h5
 /.vscode
-data/output_data/airp_sfc.h5
-data/output_data/test_braz_sfc.h5
+figs/*.png
