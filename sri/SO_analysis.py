@@ -50,7 +50,7 @@ ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
 #                     save_folder=SAVE_FOLDER)
 
 braz = sri.Tracking('braz', 
-                    sessions=SESSIONS['braz'], 
+                    sessions=SESSIONS['braz'][0:3], 
                     rotation=ROTATION, 
                     save_folder=SAVE_FOLDER)
 
@@ -264,20 +264,23 @@ for subj in [braz]: # For each subject
 
     print(f'Processing {len(clusters)} clusters for subject {subj.subject}.')
 
-    with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc.h5'), 'a') as h5file:
-        h5file.attrs['sessions'] = np.array(subj.all_sessions) 
-        h5file.attrs['channels'] = np.array(channels)
-        for cluster in clusters.itertuples():
-            # print progress through clusters
-            print(f'Cluster {cluster.cluster_ID} on channel {cluster.channel}: {clusters.index.get_loc(cluster.Index)+1}/{len(clusters)}')
-            out, ses = sfc_of_tracked_neuron(subj, cluster)
-            
-            path = f'{cluster.channel}/{cluster.cluster_ID}' 
-            grp = h5file.require_group(path)
-            if "coherograms" in grp:
-                del grp["coherograms"]  # Delete existing dataset if it exists
-            grp.create_dataset("coherograms", data=out)
-            grp.attrs['sessions'] = np.array(ses)
+    df = dict(neuron=[], cluster_ID=[], channel=[], n_unit=[], duration=[], sessions=[], coherograms=[])
+
+    for cluster in clusters.itertuples():
+        # print progress through clusters
+        print(f'Cluster {cluster.cluster_ID} on channel {cluster.channel}: {clusters.index.get_loc(cluster.Index)+1}/{len(clusters)}')
+        out, ses = sfc_of_tracked_neuron(subj, cluster)
+        
+        df['neuron'].append(cluster.neuron)
+        df['cluster_ID'].append(cluster.cluster_ID)
+        df['channel'].append(cluster.channel)
+        df['n_unit'].append(cluster.n_unit)
+        df['duration'].append(cluster.duration)
+        df['sessions'].append(ses)
+        df['coherograms'].append(out)
+    
+    df = pd.DataFrame(df)
+    df.to_pickle(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl'))
 
 #%% 
 with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
