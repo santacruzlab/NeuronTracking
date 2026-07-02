@@ -1590,313 +1590,128 @@ def sfc_of_tracked_neuron(subj: Tracking, example: pd.Series, title: str, rand: 
         
         
     return np.array(coherograms), np.array(sessions)
-#%% Unit-specific analyses
-class Spacial:
 
-    def __init__(self, subject: str, sessions: list[str], rotation: dict, save_folder: dict):
-
-        self.subject = subject
-        self.sessions = sessions
-        self.dates = [s[4:12] for s in self.sessions]
-        self.rotation = rotation
-        self.save_folder = save_folder
-        
-        print(f'[{self.subject}] Begin Spacial Analysis')
-        self.raw_data: BMI = None
-        self.raw_df = None
-        self.data_df = None
-        self.grouped_channel = None
-        self.useful_channel = None
-        self.useful_df = None 
-        self.read_sessions(parse=True)
-        self.read_data()
+def __get_threshold(subj: Tracking, pct: float, PLOT: bool):
     
-    @staticmethod
-    def calc_waveform_metrics(row) -> pd.Series:
-        """        
-        For the four important locations, we obtain the location (time sample index) and amplitude (uV).
-        1. peak_before: Peak-before trough (index 0 or peak)
-        2. trough: Trough
-        3. peak_after: Peak-after trough
-        4. inflect: Inflection point (if any)
-        
-        UPDATE 2024/11/14
-        Simplified this part to include only peak_after_amp, trough_amp, 
-        peak_before_amp, waveform, and inverted. Other metrics are not that useful.
-        However, the calculation process is preserved in case it's needed someday.
-        """
+    """
+    Calculate the similarity threshold for determining matched units.
+
+    This function generates a null distribution of similarity scores by randomly pairing 
+    waveforms from different channels across sessions. The similarity metrics are 
+    aggregated, rescaled, and used to compute a total similarity score for each pair. 
+    A threshold is then determined based on the specified percentile of the null distribution.
+
+    Parameters:
+        subj (Tracking): The Tracking object containing the data and methods for 
+                         similarity calculations.
+        pct (float): The percentile value (e.g., 95 for 95th percentile) used to 
+                     define the similarity threshold.
+
+    Returns:
+        None: The function updates the threshold attribute of the Tracking object.
+    """
+
+
+    # Obtain the amount of units for each channel in each session.
+    # useful_channel is used to ensure there are at least 5 wavefroms
+    subj_ch_session = np.zeros((len(subj.useful_channel), len(subj.dates)))
+    for i, ch in enumerate(subj.useful_channel):
+        for j, date in enumerate(subj.dates):
+            subj_ch_session[i,j] = len(subj.useful_df[(subj.useful_df.date==date) & 
+                                                      (subj.useful_df.channel==ch)])
     
-        waveform = row['wf']
-        # LEN_WF = len(waveform) # Should be 52 samples
-        
-        # First determine if the waveform is inverted
-        # If inverted, flip waveform. 
-        # Then set trough and peak-after trough    
-        min_amp = np.min(waveform)
-        max_amp = np.max(waveform)
-        
-        if (min_loc := np.argmin(waveform)) < (max_loc := np.argmax(waveform)): # The normal case
-            peak_after_amp = max_amp
-            # peak_after_loc = max_loc
-            trough_amp = min_amp
-            trough_loc = min_loc
-            inverted = False
-        else: # Inverted case
-            peak_after_amp = -min_amp
-            # peak_after_loc = min_loc 
-            trough_amp = -max_amp
-            trough_loc = max_loc
-            waveform = -waveform
-            inverted = True
-        
-        # Peak before trough
-        if trough_loc > 0:
-            peak_before_amp = np.max(waveform[:trough_loc])
-            # peak_before_loc = np.argmax(waveform[:trough_loc])
-        else:
-            peak_before_amp = 0
-            # peak_before_loc = 0
-        
-        # # Inflection point
-        # try:
-        #     fittedcurve = UnivariateSpline(np.linspace(peak_after_loc, LEN_WF-1, LEN_WF-peak_after_loc), 
-        #                                    waveform[peak_after_loc:])
-        #     fittedcurve_2d = fittedcurve.derivative(n=2)
-        #     fit_curve = fittedcurve_2d(np.linspace(peak_after_loc, LEN_WF-1, LEN_WF-peak_after_loc))
-        #     inflect_loc = np.argmin(np.abs(fit_curve)) + peak_after_loc
-        #     inflect_amp = waveform[inflect_loc]
-        # except Exception:
-        #     inflect_loc = None
-        #     inflect_amp = None
-            
-        # # Delta amplitudes (absolute values)
-        # amp_drop = peak_before_amp - trough_amp
-        # amp_rise = peak_after_amp - trough_amp
-        
-        # # Amplitude ratios
-        # ratio_before_trough =  - peak_before_amp / trough_amp
-        # ratio_after_trough =  - peak_after_amp / trough_amp
-        
-        # # Durations
-        # dur_before_trough = trough_loc - peak_before_loc
-        # dur_after_trough = peak_after_loc - trough_loc
-        
-        metrics = {
-            "peak_after_amp": peak_after_amp,
-            # "peak_after_loc": peak_after_loc, 
-            "trough_amp": trough_amp,
-            # "trough_loc": trough_loc,
-            "peak_before_amp": peak_before_amp,
-            # "peak_before_loc": peak_before_loc,
-            # "inflect_amp": inflect_amp,
-            # "inflect_loc": inflect_loc,
-            # "amp_drop": amp_drop,
-            # "amp_rise": amp_rise,
-            # "ratio_before_trough": ratio_before_trough,
-            # "ratio_after_trough": ratio_after_trough,
-            # "dur_before_trough": dur_before_trough,
-            # "dur_after_trough": dur_after_trough,
-            "waveform": waveform,
-            "inverted": inverted,
-        }
-        return pd.Series(metrics)
+    loc = np.zeros((len(subj.dates), 2))
+    loc[:,1] = np.arange(len(subj.dates))
     
-    def calc_firing_rate(array):
-        """
-        
-        For testing purpose, try the following script.
-        
-            subj = braz
-            bmi = subj.raw_data[subj.sessions[0]]
-            
-            hdf = bmi.hdffile
-            mat = bmi.matfile
-            
-            fr = []
-            
-            for key,value in bmi.pklfile['spks'].items():
-                print(key)
-                fr.append(calc_firing_rate(value))
-        
-        """
-        window_size = 0.5 # window size in seconds
-        step_size = 0.05  # step size in seconds
-        box_size = 20
-        kernel_size = 1
-        
-        
-        # Define time range for the analysis
-        time_bins = np.arange(0, max(array), step_size)
-        firing_rate = np.zeros_like(time_bins)
-        
-        # Compute firing rate for each window
-        for i, t in enumerate(time_bins):
-            count = np.sum((array >= t) & (array < t + window_size))
-            firing_rate[i] = count / window_size  # Rate in Hz (spikes per second)
-        
-        firing_rate = gaussian(slide_avg(firing_rate, box_size), kernel_size)
-
-        return firing_rate
-        
-    def read_sessions(self, parse: bool = False):
-        """
-        Read all the sessions for that subject.
-        
-        Build self.raw_data, which is a dictionary that can be accessed through
-        
-            self.raw_data[self.sessions[i]]
-        """
-        data = dict()
-        for session in self.sessions:
-            task = BMI(session, self.save_folder[session], self.rotation[session])
-            # The parse parameter is False for default, but are set by read_full_data during init.
-            # Separating BMI init and parsing data can save time if want to debug BMI class.
-            if parse:
-                task.parse_behavior()
-                task.get_index()
-            data[session] = task
-            
-        self.raw_data = data
-        
+    threshold = []
     
-    def read_data(self):
-        """
-        Read multiple data frames from the raw_data.
-        """
+    for it in range(200):
         
-        # [[raw_df]] - all units from all sessions
-        dfs = []
-        for datum in self.raw_data.values():
-            df = pd.DataFrame(datum.pklfile, columns=['fr','ptt','wf'])
-            df['unit'] = datum.session + '_' + df.index
-            dfs.append(df)
-        self.raw_df = pd.concat(dfs)
+        print(f'{it} iteration')
+        run = 0
         
-        session,date,unit_code,channel,is_direct,rotation, = [],[],[],[],[],[]
-        for i in range(len(self.raw_df)):
-            s, d, c, u = parse_unit(self.raw_df['unit'].iloc[i])
-            try:
-                direct = u in self.raw_data[s].direct_units
-            except:
-                print(f"[{s}] - skipped direct units.")
-                direct = None
-            rot = self.raw_data[s].rotation_angle
-            session.append(s)
-            date.append(d)
-            channel.append(c)
-            unit_code.append(u)
-            is_direct.append(direct)
-            rotation.append(rot)
+        dist = []
+        n_unit = []
+        
+        while len(dist) < 5000:
             
-        metrics_df = self.raw_df.apply(self.calc_waveform_metrics, axis=1)
-        self.raw_df = pd.concat([self.raw_df, metrics_df], axis=1)
-        self.raw_df['session'] = session
-        self.raw_df['date'] = date
-        self.raw_df['channel'] = channel
-        self.raw_df['unit_code'] = unit_code
-        self.raw_df['is_direct'] = is_direct
-        self.raw_df['rotation'] = rotation
-        self.raw_df = self.raw_df[self.raw_df['channel']!=0] # Excluding V probes channels, see parse_unit().
-        self.raw_df['suggested'] = True
-        self.raw_df.loc[~((self.raw_df['fr']>1) & (self.raw_df['ptt']>=80)), 'suggested'] = False
-        
-        # [[data_df]] - the units that fits the criteria (fr>1 and peak-to-trough >= 80)
-        self.data_df = self.raw_df[self.raw_df['suggested']].reset_index(drop=True)
-        
-        # [[useful_df]] - the channels that have at least 5 units across all recordings.
-        grouped_channel = self.data_df[['waveform','channel']].groupby('channel').count().sort_values(by='waveform',ascending=False)
-        self.useful_channel = grouped_channel[grouped_channel['waveform']>=USEFUL_N_UNIT].index
-        unuseful_channel = grouped_channel[grouped_channel['waveform']<USEFUL_N_UNIT].index
-        self.useful_df = self.data_df.query(f'channel not in {list(unuseful_channel)}').drop(columns=['suggested','wf']).reset_index(drop=True)
-        self.grouped_channel = self.useful_df[['waveform','channel']].groupby('channel').count().sort_values(by='waveform',ascending=False)
-
-def unit_sfc(subj: Spacial, channels: list[int] = None, rand: bool = False):
-
-    start_sec, end_sec = -1, 1
-    fs = 1000 # Sampling frequency
-
-    N_pts = int(0.6*fs) # Use N_pts//2 data points to compute spectrum
-    N_freqs = N_pts//2 + 1 # So we have N_freqs of frequency for the spectrums
-    f = np.fft.rfftfreq(N_pts, 1/fs)
-                    
-    # Divide the aligned period (from start_sec to end_sec around align_pts) into N_timesteps sections
-    N_timesteps = 100
-    t = np.linspace(start_sec, end_sec, N_timesteps)
-    
-    if channels is None:
-        channels = list(subj.useful_channel) # If no specific channels are provided, use all useful channels.
-        
-    with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc.h5'), 'a') as h5file:
-        h5file.attrs['start_sec'] = start_sec
-        h5file.attrs['end_sec'] = end_sec
-        h5file.attrs['fs'] = fs
-        h5file.attrs['freqs'] = f
-        h5file.attrs['timesteps'] = t
-        
-        for session in subj.sessions: # For each selected channel
-            print(session)
-
-            bmi = subj.raw_data[session]
-            ns2 = bmi.ns2file
-            ind = bmi.index
+            run += 1        
+            loc[:,0] = random.sample(range(len(subj.useful_channel)), len(subj.dates))
             
-            session_df = subj.useful_df[subj.useful_df['session'] == session]
-
-            for channel in session_df['channel'].unique(): 
-
-                if channel not in channels:
-                    continue
+            used_pair = []
+            for l in loc:
+                if subj_ch_session[int(l[0]), int(l[1])] != 0:
+                    used_pair.append((int(subj.useful_channel[int(l[0])]), 
+                                      subj.dates[int(l[1])]))
+            
+            sim_temp = np.zeros((2, len(used_pair), len(used_pair)))
+            for m, metric in enumerate(['correlation', 'euclidean']):
+                for i, (ch1, date1) in enumerate(used_pair):
+                    for j, (ch2, date2) in enumerate(used_pair):
+                        
+                        wf_s1 = subj.useful_df[(subj.useful_df['channel']==ch1)&(subj.useful_df['date']==date1)]['waveform']
+                        wf_s2 = subj.useful_df[(subj.useful_df['channel']==ch2)&(subj.useful_df['date']==date2)]['waveform']
+                        
+                        # Randomly pick one if > 1 unit in that channel.
+                        wf1 = wf_s1.iloc[random.randint(0, len(wf_s1)-1) if len(wf_s1) > 1 else 0]
+                        wf2 = wf_s2.iloc[random.randint(0, len(wf_s2)-1) if len(wf_s2) > 1 else 0]
+                        
+                        sim_temp[m,i,j] = subj.similarity(wf1, wf2, metric)
+                sim_temp[m] = subj.rescale(sim_temp[m], metric=metric)
+            total_temp = sim_temp.mean(axis=0)
+        
+            dist += [float(total_temp[i, j]) 
+                     for i in range(len(total_temp)) 
+                     for j in range(i + 1, len(total_temp))]
+            n_unit.append(len(total_temp))
+            
+            # if PLOT:
+            #     plt.figure(figsize=(5,5)) # Fig size (5,5) for airport, (7,10) for brazos
+            #     plt.pcolormesh(subj_ch_session,cmap='Greys', vmin=0, vmax=5)
+            #     plt.yticks(np.arange(len(subj.useful_channel)), subj.useful_channel, fontsize=5)
+            #     plt.xticks(np.arange(len(subj.dates)), subj.dates, rotation=90, fontsize=5)
+            #     plt.xlabel('Session', fontsize=5)
+            #     plt.ylabel('Channel', fontsize=5)
+            #     plt.grid(True, color='k', lw=0.1)
                 
-                lfp = ns2.getdata()['data'][channel] # Read LFP data
-                unit_codes = session_df[(session_df['channel'] == channel) & session_df['is_direct'] == True]['unit_code'].unique()
-                for unit_code in unit_codes:
-                    spike_times = bmi.pklfile['spks'].get(unit_code) # Spike times
-
-                    # [Estimate firing rate] - upsampled to the same rate as LFP
-                    fr = __calc_firing_rate(spike_times)
-                    fr_time  = np.arange(0, len(fr) / 20, 1 / 20)
-                    lfp_time = np.arange(0, len(lfp) / fs, 1 / fs)
-                    interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
-                    fr = interp_func(lfp_time)
-
-                    # All non-error-clamped trials in the first block
-                    trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] 
-                    align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
-                    
-                    # This is for randomized align_pts
-                    if rand: 
-                        align_pts = (np.random.random(len(align_pts)) * align_pts[-1]).astype(int)
-                    
-                    # Variable structures
-                    N_trials = len(align_pts)
-                    
-                    # Create a matrix to store all the detailed align points
-                    fine_align_pts = np.zeros((N_trials, N_timesteps), dtype=int)
-                    for t in range(N_trials):
-                        fine_align_pts[t] = np.linspace(align_pts[t] + start_sec * fs, 
-                                                        align_pts[t] + end_sec * fs, 
-                                                        N_timesteps, 
-                                                        dtype=int)
-                    
-                    for tr in range(N_trials): # Iterate through each time step
-                        coherogram = np.zeros((N_timesteps, N_freqs))
-
-                        for ts in range(N_timesteps):
-                            pt = fine_align_pts[tr, ts] # The align point
-                            
-                            # Take N_pts around pt to calculate coherence
-                            field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
-                            spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
-                            sxx, syy, sxy = calc_spectrum(spike_raw, field_raw, fs=1000)
-
-                            cohr = abs(sxy) / np.sqrt(syy) / np.sqrt(sxx)
-                            coherogram[ts] = cohr
-
-                        path = f'{session}/ch_{channel}/unit_{unit_code}/trial_{tr}'
-                        grp = h5file.require_group(path)
-                        if "coherogram" in grp:
-                            del grp["coherogram"]  # Delete existing dataset if it exists
-                        grp.create_dataset("coherogram", data=coherogram, compression="gzip", compression_opts=4, chunks=True)
-
+            #     for l in loc:
+            #         c = 'r' if subj_ch_session[int(l[0]), int(l[1])] == 0 else 'k'
+            #         plt.scatter(l[1]+0.5, l[0]+0.5, marker='s', c=c, s=5)
+            #     plt.show()
+                
+            #     plt.figure(figsize=(4,4))
+            #     plt.pcolormesh(total_temp, cmap='Greys', vmax=0.7, vmin=0)
+            #     plt.xticks([])
+            #     plt.yticks([])
+            #     if SAVEFIG:
+            #         plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_null_total_similarity.svg'))
+            #     plt.show()
+                
+        
+        thres = np.percentile(dist, pct)
+                
+        if PLOT:
+            plt.figure(figsize=(4,4))
+            plt.hist(dist, bins=80, density=True)
+            # plt.axvline(np.mean(dist), c='k', ls='--', label=f'Mean: {mean:.3f}')
+            plt.axvline(thres, c='r', ls='--', label=f'Threshold = {thres:.3f}')
+            plt.legend(frameon=False)
+            plt.xlabel('Total similarity')
+            plt.ylabel('Density')
+            if SAVEFIG:
+                plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_null_distribution_[{it}].svg'))
+            plt.show()
+            
+        threshold.append(thres)
+    
+    plt.figure(figsize=(4,4))
+    plt.hist(threshold, bins=30)
+    plt.xlabel('Similarity threshold')
+    plt.ylabel('Count')
+    plt.axvline(np.mean(threshold), c='k', ls='--', lw=2)
+    plt.title(f'Mean: {np.mean(threshold):.3f}, std: {np.std(threshold):.3f}')
+    if SAVEFIG:
+        plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_thresholds.svg'))
+    plt.show()
 
 

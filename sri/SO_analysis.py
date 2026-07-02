@@ -50,7 +50,7 @@ ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
 #                     save_folder=SAVE_FOLDER)
 
 braz = sri.Tracking('braz', 
-                    sessions=SESSIONS['braz'][0:11], 
+                    sessions=SESSIONS['braz'], 
                     rotation=ROTATION, 
                     save_folder=SAVE_FOLDER)
 
@@ -59,7 +59,7 @@ braz = sri.Tracking('braz',
 # sri.read_lfp_later(airp)
 sri.read_lfp_later(braz)
 #%% SFC function
-def sfc_of_tracked_neuron(subj: sri.Tracking, cluster: pd.Series, rand: bool = False):
+def sfc_of_tracked_neuron(subj: sri.Tracking, cluster: pd.Series, getNeighbors: bool = False, rand: bool = False):
     """
     Plot trial-averaged SFC for each session in a tracked neuron.
     
@@ -181,7 +181,7 @@ def sfc_of_tracked_neuron(subj: sri.Tracking, cluster: pd.Series, rand: bool = F
 
 # out, ses = sfc_of_tracked_neuron(braz, braz.useful_clusters.iloc[1])
 
-#%% Channel-specific sfc for each cluster in the tracking objects.
+#%% Run SFC function: select channels and only useful clusters
 for subj in [braz]: # For each subject
     # all_channels = list(subj.useful_channel)
     all_channels = list(subj.useful_clusters['channel'].unique().astype(int)) # Get unique channels from useful_clusters
@@ -196,6 +196,8 @@ for subj in [braz]: # For each subject
     print(f'Processing {len(clusters)} clusters for subject {subj.subject}.')
 
     with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc.h5'), 'a') as h5file:
+        h5file.attrs['sessions'] = np.array(subj.all_sessions) 
+        h5file.attrs['channels'] = np.array(channels)
         for cluster in clusters.itertuples():
             # print progress through clusters
             print(f'Cluster {cluster.cluster_ID} on channel {cluster.channel}: {clusters.index.get_loc(cluster.Index)+1}/{len(clusters)}')
@@ -206,12 +208,9 @@ for subj in [braz]: # For each subject
             if "coherograms" in grp:
                 del grp["coherograms"]  # Delete existing dataset if it exists
             grp.create_dataset("coherograms", data=out)
+            grp.attrs['sessions'] = np.array(ses)
 
-            if "sessions" in grp:
-                del grp["sessions"]  # Delete existing dataset if it exists
-            grp.create_dataset("sessions", data=ses.astype('S'))  # Store sessions as bytes
-
-# %%
+# %% Visualize coherence over trials for each cluster in the tracking objects.
 os.chdir(FIG_FOLDER)
 
 with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
@@ -251,8 +250,60 @@ with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
             plt.tight_layout()
             plt.savefig(f'Channel_{channel}_{cluster}')
             
+#%% Extract SFC for every selected channel, and every identified unit through all sessions
+for subj in [braz]: # For each subject
+    # all_channels = list(subj.useful_channel)
+    all_channels = list(subj.useful_clusters['channel'].unique().astype(int)) # Get unique channels from useful_clusters
+    channels = random.sample(all_channels, min(5, len(all_channels))) # Randomly select 5 channels or all if less than 5
+    print(f'{subj.subject} - Selected channels: {channels}')
+    # look through channel to find all clusters for that channel
+    # then run sfc_of_tracked_neuron for each cluster and save the results
+
+    # look through self.useful_clusters, maybe self.useful_df for info
+    clusters = subj.useful_clusters[subj.useful_clusters['channel'].isin(channels)]
+
+    print(f'Processing {len(clusters)} clusters for subject {subj.subject}.')
+
+    with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc.h5'), 'a') as h5file:
+        h5file.attrs['sessions'] = np.array(subj.all_sessions) 
+        h5file.attrs['channels'] = np.array(channels)
+        for cluster in clusters.itertuples():
+            # print progress through clusters
+            print(f'Cluster {cluster.cluster_ID} on channel {cluster.channel}: {clusters.index.get_loc(cluster.Index)+1}/{len(clusters)}')
+            out, ses = sfc_of_tracked_neuron(subj, cluster)
             
-            
+            path = f'{cluster.channel}/{cluster.cluster_ID}' 
+            grp = h5file.require_group(path)
+            if "coherograms" in grp:
+                del grp["coherograms"]  # Delete existing dataset if it exists
+            grp.create_dataset("coherograms", data=out)
+            grp.attrs['sessions'] = np.array(ses)
+
+#%% 
+with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
+    # h5file.visit(print)  # Print all paths in the HDF5 file
+
+    metadata = dict(h5file.attrs.items())
+    # convert bytes to int for channels
+    metadata['channels'] = [int(ch) for ch in metadata['channels']]
+    print(metadata['channels'])
+    metadata['sessions'] = [s.decode('utf-8') for s in metadata['sessions']]
+    print(metadata['sessions'])
+    
+    for channel in h5file.keys():
+        for cluster in h5file[channel].keys():
+            if len(h5file[channel][cluster]['coherograms']) > 2:
+                sessions = [s.decode("utf-8") for s in h5file[channel][cluster]['sessions'][:]]
+                print(f'Channel: {channel}, Cluster: {cluster}, Sessions: { [metadata["sessions"].index(s) for s in sessions] }')
+    #     print(f'Channel: {channel}')
+        
+
+    #     grp = h5file[channel]
+    #     for cluster in grp.keys():
+    #         print(f'  Cluster: {cluster}, Length: {len(grp[cluster]["coherograms"])}')
+
+
+        
 
 #%% Generate trial-averaged SFC coherograms for useful clusters in the tracking objects.
 # Generate SFC coherograms for each useful cluster in the tracking objects.
