@@ -50,7 +50,7 @@ ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
 #                     save_folder=SAVE_FOLDER)
 
 braz = sri.Tracking('braz', 
-                    sessions=SESSIONS['braz'][0:3], 
+                    sessions=SESSIONS['braz'], 
                     rotation=ROTATION, 
                     save_folder=SAVE_FOLDER)
 
@@ -250,51 +250,164 @@ with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
 
             plt.tight_layout()
             plt.savefig(f'Channel_{channel}_{cluster}')
+
+#%% SFC Function per unit
+# SFC function per unit
+def sfc_of_single_unit(subj: sri.Tracking, session: str, unit_code: str, channel: int, getNeighbors: bool = False, rand: bool = False):
+    """
+    Plot trial-averaged SFC for each session in a tracked neuron.
+    
+    cluster: usage like airp.useful_clusters.iloc[0]
+    title: for the title and the saved filename
+    rand: if this is to randomized aligned points.   
+    
+    """
+    
+    start_sec, end_sec = -1, 1
+
+    bmi = subj.raw_data[session]
+    ns2 = bmi.ns2file
+    ind = bmi.index
+    
+    try:
+        spike_times = bmi.pklfile['spks'].get(unit_code) # Spike times
+        fs = 1000 # Sampling frequency
+
+        lfp = ns2.getdata()['data'][channel] # Read LFP data
+        
+        # [Estimate firing rate] - upsampled to the same rate as LFP
+        fr = sri.__calc_firing_rate(spike_times)
+        fr_time  = np.arange(0, len(fr) / 20, 1 / 20)
+        lfp_time = np.arange(0, len(lfp) / fs, 1 / fs)
+        interp_func = interp1d(fr_time, fr, kind='linear', fill_value='extrapolate')
+        fr = interp_func(lfp_time)
+        
+        # All non-error-clamped trials in the first block
+        trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] 
+        align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
+        
+        # This is for randomized align_pts
+        if rand: 
+            align_pts = (np.random.random(len(align_pts)) * align_pts[-1]).astype(int)
+        
+        # Variable structures
+        N_trials = len(align_pts)
+
+        N_pts = int(0.6*fs) # Use N_pts//2 data points to compute spectrum
+        N_freqs = N_pts//2 + 1 # So we have N_freqs of frequency for the spectrums
+        f = np.fft.rfftfreq(N_pts, 1/fs)
+        
+        # Divide the aligned period (from start_sec to end_sec around align_pts) into N_timesteps sections
+        N_timesteps = 100
+        t = np.linspace(start_sec, end_sec, N_timesteps)
+        
+        # Create a matrix to store all the detailed align points
+        fine_align_pts = np.zeros((N_trials, N_timesteps), dtype=int)
+        for t in range(N_trials):
+            fine_align_pts[t] = np.linspace(align_pts[t] + start_sec * fs, 
+                                            align_pts[t] + end_sec * fs, 
+                                            N_timesteps, 
+                                            dtype=int)
+        
+        coherogram = np.zeros((1, N_freqs))
+
+        f_bands = [(1, 4), (5, 8), (9, 12), (13, 30), (31, 50)] # divide frequencies into bins for delta, theta, alpha, beta, gamma
+        
+        session_coherences = np.zeros((N_trials, len(f_bands)))
+        
+        for t in range(N_trials):
+            Sxx = np.zeros(int(N_pts/2+1)) # Field spectrum.
+            Syy = np.zeros(int(N_pts/2+1)) # Spike spectrum.
+            Sxy = np.zeros(int(N_pts/2+1), dtype=complex) # Cross spectrum.
+
+            for ts in range(N_timesteps):
+                pt = fine_align_pts[t, ts]
+
+                field_raw = lfp[pt-N_pts//2: pt+N_pts//2]
+                spike_raw = fr[pt-N_pts//2: pt+N_pts//2]
+                sxx, syy, sxy = sri.calc_spectrum(spike_raw, field_raw, fs=1000)
+
+                # Directly adding the averaged values
+                Sxx += (sxx / N_trials)
+                Syy += (syy / N_trials)
+                Sxy += (sxy / N_trials)
+
+            cohr = abs(Sxy) / np.sqrt(Syy) / np.sqrt(Sxx)
+            coherogram = cohr
+
+            coherences = np.zeros(len(f_bands))
+            coherences_std = np.zeros(len(f_bands))
+
+            for i in range(len(f_bands)):
+                f_low, f_high = f_bands[i]
+                idx_low = np.argmin(np.abs(f - f_low))
+                idx_high = np.argmin(np.abs(f - f_high))
+                
+                coherence = coherogram[idx_low:idx_high].mean() # Average coherence in the frequency band
+                coherence_std = coherogram[idx_low:idx_high].std() / np.sqrt(coherogram.shape)
+
+                
             
-#%% Run SFC Function: Extract SFC for every selected channel, and every identified unit through all sessions
-# Run SFC Function: Extract SFC for every selected channel, and every identified unit through all sessions.
-for subj in [braz]: # For each subject
-    # all_channels = subj.useful_clusters['channel'].unique() # Get unique channels from useful_clusters
+                coherences[i] = coherence
+                # coherences_std[i] = coherence_std
+
+            session_coherences[t] = coherences
+
+    # print the error and skip if any error occurs (e.g., no spike times, or not enough data points for the aligned period)
+    except Exception as e:
+        print(f'Error occurred while processing unit {unit_code} in session {session}')
+        pass
+        
+    return np.array(session_coherences)
+#%% Run SFC Function: save per unit
+# Run SFC Function: save per unit
+for subj in [braz]:
     all_channels = np.array(subj.useful_channel)
+    processed_channels = []
 
-    if os.path.exists(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl')):
-        print(f'SFC DataFrame for {subj.subject} already exists. Loading from file.')
-        subj.sfc_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl'))
-        processed = subj.sfc_df['channel'].unique()
-        all_channels = all_channels[~np.isin(all_channels, processed)] # Remove already processed channels
+    sfc_folder = os.path.join(OUTPUT_DATA_FOLDER, 'channel_sfc')
 
-    channels = np.random.choice(all_channels, min(20, len(all_channels)), replace=False) # Randomly select 20 channels or all if less than 20
+    with os.scandir(sfc_folder) as entries: # find all channels already extracted and saved
+        for entry in entries:
+            if entry.is_file() and entry.name.endswith('.pkl'):
+                processed_channels.append(int(entry.name[-7:-4]))
+
+    all_channels = np.setdiff1d(all_channels, processed_channels)
+
+    channels = np.random.choice(all_channels, min(10, len(all_channels)), replace=False) # Randomly select 10 channels or all if less than 10
     # print(f'{subj.subject} - Selected channels: {channels}')
     print(f"{subj.subject} - Remaining channels to process: {len(all_channels)}")
     print(f"{subj.subject} - Selected channels: {[int(x) for x in channels]}")
 
-    # look through channel to find all clusters for that channel
-    # then run sfc_of_tracked_neuron for each cluster and save the results
-    clusters = subj.useful_clusters[subj.useful_clusters['channel'].isin(channels)]
+    for ch in channels:
+        ch_df = subj.useful_df[subj.useful_df['channel'] == ch]
+        ch_df = ch_df.dropna(subset=['cluster_ID']) # Drop rows where cluster_ID is NaN
+        sfc_df = pd.DataFrame(columns=['session', 'date', 'channel', 'unit_code', 'coherogram', 'wf_cluster_ID'])
 
-    print(f'Processing {len(clusters)} clusters for subject {subj.subject}.')
+        for unit in range(len(ch_df)):
+            unit_code = ch_df.iloc[unit]['unit_code']
+            session = ch_df.iloc[unit]['session']
+            channel = ch_df.iloc[unit]['channel']
+            date = ch_df.iloc[unit]['date']
+            cluster_ID = int(ch_df.iloc[unit]['cluster_ID'])
 
-    df = dict(neuron=[], cluster_ID=[], channel=[], n_unit=[], duration=[], sessions=[], coherograms=[])
+            print(f'Processing unit {unit_code} in session {session} on channel {channel}')
+            out = sfc_of_single_unit(subj, session, unit_code, channel)
+            
+            sfc_df = pd.concat([sfc_df, pd.DataFrame({
+                'session': [session],
+                'date': [date],
+                'channel': [channel],
+                'unit_code': [unit_code],
+                'coherogram': [out],
+                'wf_cluster_ID': [cluster_ID]
+            })], ignore_index=True)
 
-    for cluster in clusters.itertuples():
-        # print progress through clusters
-        print(f'Cluster {cluster.cluster_ID} on channel {cluster.channel}: {clusters.index.get_loc(cluster.Index)+1}/{len(clusters)}')
-        out, ses = sfc_of_tracked_neuron(subj, cluster)
-        
-        df['neuron'].append(cluster.neuron)
-        df['cluster_ID'].append(cluster.cluster_ID)
-        df['channel'].append(cluster.channel)
-        df['n_unit'].append(cluster.n_unit)
-        df['duration'].append(cluster.duration)
-        df['sessions'].append(ses)
-        df['coherograms'].append(out)
-    
-    df = pd.DataFrame(df)
-
-    subj.sfc_df = pd.concat([subj.sfc_df, df], ignore_index=True) if hasattr(subj, 'sfc_df') else df
-    subj.sfc_df.to_pickle(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl'))
-
-    print(f'SFC DataFrame for {subj.subject} saved to {os.path.join(OUTPUT_DATA_FOLDER, f"{subj.subject}_sfc_df.pkl")}')
+        # Save the results for this channel
+        ch_string = str(ch).zfill(3)  # Pad channel number with zeros to make it 3 digits
+        save_path = os.path.join(sfc_folder, f'{subj.subject}_sfc_ch{ch_string}.pkl')
+        sfc_df.to_pickle(save_path)
+        print(f'Saved SFC for channel {ch} to {save_path}')
 
 #%% 
 with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
