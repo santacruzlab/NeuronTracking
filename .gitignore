@@ -8,3 +8,4 @@
 *.h5
 /.vscode
 figs/*.png
+*.pkl

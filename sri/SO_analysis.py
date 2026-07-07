@@ -59,6 +59,7 @@ braz = sri.Tracking('braz',
 # sri.read_lfp_later(airp)
 sri.read_lfp_later(braz)
 #%% SFC function
+# SFC function
 def sfc_of_tracked_neuron(subj: sri.Tracking, cluster: pd.Series, getNeighbors: bool = False, rand: bool = False):
     """
     Plot trial-averaged SFC for each session in a tracked neuron.
@@ -250,16 +251,25 @@ with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
             plt.tight_layout()
             plt.savefig(f'Channel_{channel}_{cluster}')
             
-#%% Extract SFC for every selected channel, and every identified unit through all sessions
+#%% Run SFC Function: Extract SFC for every selected channel, and every identified unit through all sessions
+# Run SFC Function: Extract SFC for every selected channel, and every identified unit through all sessions.
 for subj in [braz]: # For each subject
-    # all_channels = list(subj.useful_channel)
-    all_channels = list(subj.useful_clusters['channel'].unique().astype(int)) # Get unique channels from useful_clusters
-    channels = random.sample(all_channels, min(5, len(all_channels))) # Randomly select 5 channels or all if less than 5
-    print(f'{subj.subject} - Selected channels: {channels}')
+    # all_channels = subj.useful_clusters['channel'].unique() # Get unique channels from useful_clusters
+    all_channels = np.array(subj.useful_channel)
+
+    if os.path.exists(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl')):
+        print(f'SFC DataFrame for {subj.subject} already exists. Loading from file.')
+        subj.sfc_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl'))
+        processed = subj.sfc_df['channel'].unique()
+        all_channels = all_channels[~np.isin(all_channels, processed)] # Remove already processed channels
+
+    channels = np.random.choice(all_channels, min(20, len(all_channels)), replace=False) # Randomly select 20 channels or all if less than 20
+    # print(f'{subj.subject} - Selected channels: {channels}')
+    print(f"{subj.subject} - Remaining channels to process: {len(all_channels)}")
+    print(f"{subj.subject} - Selected channels: {[int(x) for x in channels]}")
+
     # look through channel to find all clusters for that channel
     # then run sfc_of_tracked_neuron for each cluster and save the results
-
-    # look through self.useful_clusters, maybe self.useful_df for info
     clusters = subj.useful_clusters[subj.useful_clusters['channel'].isin(channels)]
 
     print(f'Processing {len(clusters)} clusters for subject {subj.subject}.')
@@ -280,7 +290,11 @@ for subj in [braz]: # For each subject
         df['coherograms'].append(out)
     
     df = pd.DataFrame(df)
-    df.to_pickle(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl'))
+
+    subj.sfc_df = pd.concat([subj.sfc_df, df], ignore_index=True) if hasattr(subj, 'sfc_df') else df
+    subj.sfc_df.to_pickle(os.path.join(OUTPUT_DATA_FOLDER, f'{subj.subject}_sfc_df.pkl'))
+
+    print(f'SFC DataFrame for {subj.subject} saved to {os.path.join(OUTPUT_DATA_FOLDER, f"{subj.subject}_sfc_df.pkl")}')
 
 #%% 
 with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
@@ -305,8 +319,236 @@ with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
     #     for cluster in grp.keys():
     #         print(f'  Cluster: {cluster}, Length: {len(grp[cluster]["coherograms"])}')
 
+#%% similarity and thresholding for SFC functions
+SAVEFIG = True
+                
+def get_sfc_threshold(subj: sri.Tracking, pct: float, PLOT: bool):
 
+    # Obtain the amount of units for each channel in each session.
+    # useful_channel is used to ensure there are at least 5 wavefroms
+    subj_ch_session = np.zeros((len(subj.useful_channel), len(subj.sessions)))
+    for i, ch in enumerate(subj.useful_channel):
+        for j, session in enumerate(subj.sessions):
+            subj_ch_session[i,j] = len(subj.useful_df[(subj.useful_df.session==session) & 
+                                                      (subj.useful_df.channel==ch)])
+    
+    loc = np.zeros((len(subj.sessions), 2))
+    loc[:,1] = np.arange(len(subj.sessions))
+    
+    threshold = []
+    
+    for it in range(200):
         
+        print(f'{it} iteration')
+        run = 0
+        
+        dist = []
+        n_unit = []
+        
+        while len(dist) < 5000:
+            
+            run += 1        
+            loc[:,0] = random.sample(range(len(subj.useful_channel)), len(subj.sessions))
+            
+            used_pair = []
+            for l in loc:
+                if subj_ch_session[int(l[0]), int(l[1])] != 0:
+                    used_pair.append((int(subj.useful_channel[int(l[0])]), 
+                                      subj.sessions[int(l[1])]))
+            
+            sim_temp = np.zeros((2, len(used_pair), len(used_pair)))
+            for m, metric in enumerate(['correlation', 'euclidean']):
+                for i, (ch1, ses1) in enumerate(used_pair):
+                    for j, (ch2, ses2) in enumerate(used_pair):
+                        
+                        # transform sfc values per trial to a 1D array for similarity calculation
+                        # do this for every frequency band
+
+                        cID_1 = int(subj.useful_df[(subj.useful_df['channel']==ch1)&(subj.useful_df['session']==ses1)]['cluster_ID'])
+                        cID_2 = int(subj.useful_df[(subj.useful_df['channel']==ch2)&(subj.useful_df['session']==ses2)]['cluster_ID'])
+
+                        # Randomly pick one if > 1 unit in that channel.
+                        cID_1 = cID_1.iloc[random.randint(0, len(cID_1)-1) if len(cID_1) > 1 else 0]
+                        cID_2 = cID_2.iloc[random.randint(0, len(cID_2)-1) if len(cID_2) > 1 else 0]
+
+                        idx_1 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_1)]['sessions'].index(ses1) # find which unit in the cluster corresponds to the selected unit based on session and channel
+                        idx_2 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_2)]['sessions'].index(ses2) # find which unit in the cluster corresponds to the selected unit based on session and channel
+
+                        wf1 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_1)]['coherograms'][idx_1, :, 0] # Use the first frequency band (Delta) for similarity calculation
+                        wf2 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_2)]['coherograms'][idx_2, :, 0] # Use the first frequency band (Delta) for similarity calculation
+
+                        sim_temp[m,i,j] = subj.similarity(wf1, wf2, metric)
+                sim_temp[m] = subj.rescale(sim_temp[m], metric=metric)
+            total_temp = sim_temp.mean(axis=0)
+        
+            dist += [float(total_temp[i, j]) 
+                     for i in range(len(total_temp)) 
+                     for j in range(i + 1, len(total_temp))]
+            n_unit.append(len(total_temp))
+            
+            # if PLOT:
+            #     plt.figure(figsize=(5,5)) # Fig size (5,5) for airport, (7,10) for brazos
+            #     plt.pcolormesh(subj_ch_session,cmap='Greys', vmin=0, vmax=5)
+            #     plt.yticks(np.arange(len(subj.useful_channel)), subj.useful_channel, fontsize=5)
+            #     plt.xticks(np.arange(len(subj.sessions)), subj.sessions, rotation=90, fontsize=5)
+            #     plt.xlabel('Session', fontsize=5)
+            #     plt.ylabel('Channel', fontsize=5)
+            #     plt.grid(True, color='k', lw=0.1)
+                
+            #     for l in loc:
+            #         c = 'r' if subj_ch_session[int(l[0]), int(l[1])] == 0 else 'k'
+            #         plt.scatter(l[1]+0.5, l[0]+0.5, marker='s', c=c, s=5)
+            #     plt.show()
+                
+            #     plt.figure(figsize=(4,4))
+            #     plt.pcolormesh(total_temp, cmap='Greys', vmax=0.7, vmin=0)
+            #     plt.xticks([])
+            #     plt.yticks([])
+            #     if SAVEFIG:
+            #         plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_null_total_similarity.svg'))
+            #     plt.show()
+                
+        
+        thres = np.percentile(dist, pct)
+                
+        if PLOT:
+            plt.figure(figsize=(4,4))
+            plt.hist(dist, bins=80, density=True)
+            # plt.axvline(np.mean(dist), c='k', ls='--', label=f'Mean: {mean:.3f}')
+            plt.axvline(thres, c='r', ls='--', label=f'Threshold = {thres:.3f}')
+            plt.legend(frameon=False)
+            plt.xlabel('Total similarity')
+            plt.ylabel('Density')
+            if SAVEFIG:
+                plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_null_distribution_[{it}].svg'))
+            plt.show()
+            
+        threshold.append(thres)
+    
+    plt.figure(figsize=(4,4))
+    plt.hist(threshold, bins=30)
+    plt.xlabel('Similarity threshold')
+    plt.ylabel('Count')
+    plt.axvline(np.mean(threshold), c='k', ls='--', lw=2)
+    plt.title(f'Mean: {np.mean(threshold):.3f}, std: {np.std(threshold):.3f}')
+    if SAVEFIG:
+        plt.savefig(os.path.join(FIG_FOLDER, f'[{subj.subject}]_thresholds.svg'))
+    plt.show()
+
+
+#%% Calc sfc similarity function
+# calc sfc similarity function
+def calc_sfc_similarity(subj: sri.Tracking):
+        """
+        Calculate the similarity score for each pair of units within the same channels across all sessions.
+        Here we use pearson correlation and Euclidean distance to estimate total similarity.
+        The similarity data are stored in self.sim_df: pd.DataFrame.
+        
+        Each row will be the similarity results from one useful channel.
+        There will be 4 columns: 'correlation', 'euclidean', 'unit', and 'total'.
+        
+        The 'unit' column for each row is a list of units in that channel.
+        The other columns store matrices of similarity whose shapes are (m, m),
+        where m is the number of units across all sessions in that channel. 
+        """
+        
+        # [[sfc_sim_df]] - stores the total similarity matrix for each channel
+        subj.sfc_sim_df = pd.DataFrame(columns=['correlation', 'euclidean', 'unit'], index=subj.useful_channel)
+        
+        for ch in subj.useful_channel:
+            temp_dict = dict() # stores dataframes for each metric 
+            ch_df = subj.useful_df[subj.useful_df['channel']==ch].sort_values(by='date')
+            temp_dict['unit'] = ch_df['unit'].values
+
+            for metric in ['correlation', 'euclidean']:
+                sim_temp = np.zeros((len(ch_df), len(ch_df))) # stores similarity
+                    
+                # Compute for each pair of waveforms
+                for i in range(len(ch_df)):
+                    for j in range(len(ch_df)):
+                        cID_1 = ch_df['cluster_ID'].iloc[i]
+                        cID_2 = ch_df['cluster_ID'].iloc[j]
+
+                        idx_1 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_1)]['sessions'].tolist().index(ch_df['session'].iloc[i])
+                        idx_2 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_2)]['sessions'].tolist().index(ch_df['session'].iloc[j])
+
+                        wf1 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_1)]['coherograms'][idx_1, :, 0] # Use the first frequency band (Delta) for similarity calculation
+                        wf2 = subj.sfc_df[(subj.sfc_df['cluster_ID']==cID_2)]['coherograms'][idx_2, :, 0] # Use the first frequency band (Delta) for similarity calculation
+
+                        sim_temp[i,j] = subj.similarity(
+                            wf1,
+                            wf2,
+                            metric
+                        )
+                sim_temp = subj.rescale(sim_temp, metric=metric)
+                temp_dict[metric] = sim_temp
+                
+            subj.sfc_sim_df.loc[ch] = temp_dict
+    
+        # total similarity is the avg of correlation and euclidean.
+        subj.sfc_sim_df['total'] = (
+            subj.sfc_sim_df['correlation'] + 
+            subj.sfc_sim_df['euclidean'] )/2
+        
+#%% similarity function for testing
+# similarity function for testing
+def calc_single_sfc_similarity(sfc_df: pd.DataFrame, useful_df: pd.DataFrame, channels: list = None):
+        """
+        Calculate the similarity score for each pair of units within the same channels across all sessions.
+        Here we use pearson correlation and Euclidean distance to estimate total similarity.
+        The similarity data are stored in self.sfc_sim_df: pd.DataFrame.
+        
+        Each row will be the similarity results from one useful channel.
+        There will be 4 columns: 'correlation', 'euclidean', 'unit', and 'total'.
+        
+        The 'unit' column for each row is a list of units in that channel.
+        The other columns store matrices of similarity whose shapes are (m, m),
+        where m is the number of units across all sessions in that channel. 
+        """
+        
+        if channels is None:
+            channels = sfc_df['channel'].unique()
+
+        # [[sfc_sim_df]] - stores the total similarity matrix for each channel
+        sfc_sim_df = pd.DataFrame(columns=['correlation', 'euclidean', 'unit'], index=channels)
+        
+        for ch in channels:
+            temp_dict = dict() # stores dataframes for each metric 
+            ch_df = useful_df[useful_df['channel']==ch].sort_values(by='date')
+            temp_dict['unit'] = ch_df['unit'].values
+
+            for metric in ['correlation', 'euclidean']:
+                sim_temp = np.zeros((len(ch_df), len(ch_df))) # stores similarity
+                    
+                # Compute for each pair of waveforms
+                for i in range(len(ch_df)):
+                    for j in range(len(ch_df)):
+                        cID_1 = ch_df['cluster_ID'].iloc[i]
+                        cID_2 = ch_df['cluster_ID'].iloc[j]
+                        
+                        print(ch, cID_1, cID_2, ch_df['session'].iloc[i], ch_df['session'].iloc[j])
+                        idx_1 = np.where(sfc_df[(sfc_df['cluster_ID']==cID_1)]['sessions'].iloc[0] == ch_df['session'].iloc[i])[0][0]
+                        idx_2 = np.where(sfc_df[(sfc_df['cluster_ID']==cID_2)]['sessions'].iloc[0] == ch_df['session'].iloc[j])[0][0]
+
+                        wf1 = sfc_df[(sfc_df['cluster_ID']==cID_1)]['coherograms'].iloc[0][idx_1, :, 0] # Use the first frequency band (Delta) for similarity calculation
+                        wf2 = sfc_df[(sfc_df['cluster_ID']==cID_2)]['coherograms'].iloc[0][idx_2, :, 0] # Use the first frequency band (Delta) for similarity calculation
+
+                        sim_temp[i,j] = sri.Tracking.similarity(
+                            wf1,
+                            wf2,
+                            metric
+                        )
+                sim_temp = sri.Tracking.rescale(sim_temp, metric=metric)
+                temp_dict[metric] = sim_temp
+                
+            sfc_sim_df.loc[ch] = temp_dict
+    
+        # total similarity is the avg of correlation and euclidean.
+        sfc_sim_df['total'] = (
+            sfc_sim_df['correlation'] + 
+            sfc_sim_df['euclidean'] )/2
+        
+        return sfc_sim_df
 
 #%% Generate trial-averaged SFC coherograms for useful clusters in the tracking objects.
 # Generate SFC coherograms for each useful cluster in the tracking objects.
