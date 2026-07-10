@@ -7,5 +7,6 @@
 *nev_output.pkl
 *.h5
 /.vscode
-figs/*.png
+*.png
 *.pkl
+*.svg

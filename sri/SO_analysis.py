@@ -7,6 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+import seaborn as sns
+import datetime
 
 from scipy import cluster, stats
 from scipy import signal
@@ -20,6 +22,7 @@ PROJECT_FOLDER = os.path.dirname(SRI_FOLDER)
 DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
 OUTPUT_DATA_FOLDER = os.path.join(DATA_FOLDER, 'output_data')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'figs')
+SFC_FOLDER = os.path.join(OUTPUT_DATA_FOLDER, 'channel_sfc')
 
 print(os.getcwd())
 
@@ -39,7 +42,6 @@ for i, sessions in enumerate([ ses.AIRPORT_SESSIONS_1, ses.AIRPORT_SESSIONS_2, s
 # plotting constants
 SUBJECT_COLOR = dict(zip(SUBJECT, ['g', 'b'])) # airp is green, braz is blue.
 ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
-
 
 #%% Initialize tracking objects
 # Initialize tracking objects for Airport and Brazos.
@@ -172,9 +174,7 @@ for subj in [braz]:
     all_channels = np.array(subj.useful_channel)
     processed_channels = []
 
-    sfc_folder = os.path.join(OUTPUT_DATA_FOLDER, 'channel_sfc')
-
-    with os.scandir(sfc_folder) as entries: # find all channels already extracted and saved
+    with os.scandir(SFC_FOLDER) as entries: # find all channels already extracted and saved
         for entry in entries:
             if entry.is_file() and entry.name.endswith('.pkl'):
                 processed_channels.append(int(entry.name[-7:-4]))
@@ -216,15 +216,15 @@ for subj in [braz]:
 
         # Save the results for this channel
         ch_string = str(ch).zfill(3)  # Pad channel number with zeros to make it 3 digits
-        save_path = os.path.join(sfc_folder, f'{subj.subject}_sfc_ch{ch_string}.pkl')
+        save_path = os.path.join(SFC_FOLDER, f'{subj.subject}_sfc_ch{ch_string}.pkl')
         sfc_df.to_pickle(save_path)
         print(f'Saved SFC for channel {ch} to {save_path}')
 
 
 
-#%% Calc sfc similarity function
-# calc sfc similarity function
-def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame = None, useful_df: pd.DataFrame = None, cID_1: int, cID_2: int):
+#%% Calc cluster sfc similarity function
+# calc cluster sfc similarity function
+def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame = None, cID_1: int = None, cID_2: int = None):
         """
         Calculate the similarity score for each pair of units within the same channels across all sessions.
         Here we use pearson correlation and Euclidean distance to estimate total similarity.
@@ -241,19 +241,23 @@ def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame 
         # [[sfc_sim_df]] - stores the total similarity matrix for each channel
 
         if subj is not None: 
-            if useful_df is None or sfc_df is None:
-                useful_df = subj.useful_df
+            if sfc_df is None:
                 sfc_df = subj.sfc_df
         else: 
-            if useful_df is None or sfc_df is None:
-                raise ValueError("If 'subj' is not provided, 'useful_df', and 'sfc_df' must be provided.")
+            if sfc_df is None:
+                raise ValueError("If 'subj' is not provided, 'sfc_df' must be provided.")
+            
+        if cID_1 is None or cID_2 is None:
+            cID_1, cID_2 = np.random.choice(subj.sfc_df['cluster_ID'].unique(), 2, replace=False)
 
-        sfc_sim_df = pd.DataFrame(columns=['correlation', 'euclidean', 'unit'])
 
-        c1_df = sfc_df[sfc_df['cluster_ID']==cID_1].sort_values(by='date')
-        c2_df = sfc_df[sfc_df['cluster_ID']==cID_2].sort_values(by='date')
+        # sfc_sim_df = pd.DataFrame(columns=['correlation', 'euclidean', 'unit']) - move this to other code running it
+
+        c1_df = sfc_df[sfc_df['wf_cluster_ID']==cID_1].sort_values(by='date')
+        c2_df = sfc_df[sfc_df['wf_cluster_ID']==cID_2].sort_values(by='date')
 
         sim_dict = dict() # stores dataframes for each metric
+        sim_dict['clusters'] = (cID_1, cID_2)
 
         for metric in ['correlation', 'euclidean']:
             sim_temp = np.zeros((len(c1_df), len(c2_df))) # stores similarity
@@ -263,20 +267,123 @@ def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame 
                     wf1 = c1_df['coherogram'].iloc[i][:, 0] # Use the first frequency band (Delta) for similarity calculation
                     wf2 = c2_df['coherogram'].iloc[j][:, 0] # Use the first frequency band (Delta) for similarity calculation
 
-                    sim_temp[i,j] = subj.similarity(
+                    exclude_indices = np.where(np.isnan(wf1) | np.isnan(wf2))[0]
+
+                    if len(exclude_indices) > 0:
+                        wf1 = np.delete(wf1, exclude_indices)
+                        wf2 = np.delete(wf2, exclude_indices)
+
+                    sim_temp[i,j] = sri.Tracking.similarity(
                         wf1,
                         wf2,
                         metric
                     )
+
+                    # print(f'[{metric}] Similarity between cluster {cID_1} (session {i}) and cluster {cID_2} (session {j}): {sim_temp[i,j]:.4f}')
             
-            sim_temp = subj.rescale(sim_temp, metric=metric)
+            sim_temp = sri.Tracking.rescale(sim_temp, metric=metric)
             sim_dict[metric] = sim_temp
 
         sim_dict['total'] = (sim_dict['correlation'] + sim_dict['euclidean']) / 2
         return sim_dict
-        
 
-#%% similarity and thresholding for SFC functions
+#%% Run calc_cluster_sfc_similarity function
+# Run calc_cluster_sfc_similarity function
+
+braz_useful_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_useful_df.pkl'))
+braz_sfc_df = pd.DataFrame(columns=['session', 'date', 'channel', 'unit_code', 'coherogram', 'wf_cluster_ID'])
+with os.scandir(SFC_FOLDER) as entries: # find all channels already extracted and saved
+        for entry in entries:
+            if entry.is_file() and entry.name.endswith('.pkl'):
+                braz_sfc_df = pd.concat([braz_sfc_df, pd.read_pickle(os.path.join(SFC_FOLDER, entry.name))], ignore_index=True)
+
+cID_1, cID_2 = 2107, 2553
+# cID_1, cID_2 = 1096, 1098
+
+sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_1, cID_2 = cID_1)
+# sim_df = pd.DataFrame(sim_dict)
+
+plt.figure(figsize=(6, 5))
+sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
+plt.title("Cluster similarities")
+plt.xlabel(f"Cluster {cID_1} Sessions")
+plt.ylabel(f"Cluster {cID_1} Sessions")
+plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_1}_similarity.svg'))
+plt.show()
+
+sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_2, cID_2 = cID_2)
+# sim_df = pd.DataFrame(sim_dict)
+
+plt.figure(figsize=(6, 5))
+sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
+plt.title("Cluster similarities")
+plt.xlabel(f"Cluster {cID_2} Sessions")
+plt.ylabel(f"Cluster {cID_2} Sessions")
+plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_2}_{cID_2}_similarity.svg'))
+plt.show()
+
+sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_1, cID_2 = cID_2)
+# sim_df = pd.DataFrame(sim_dict)
+
+plt.figure(figsize=(6, 5))
+sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
+plt.title("Cluster similarities")
+plt.xlabel(f"Cluster {cID_1} Sessions")
+plt.ylabel(f"Cluster {cID_2} Sessions")
+plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_2}_similarity.svg'))
+plt.show()
+
+temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_1].sort_values(by='date')
+
+plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
+
+for i in range(len(temp_sfc_df)):
+    plotting_df = pd.concat([plotting_df, pd.DataFrame({
+        'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
+        'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
+        
+        ignore_index=True)
+
+plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
+
+means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
+
+sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True)
+# plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
+sns.regplot(x='date_rel', y='coherence', data=means, scatter=True, ci=None, color='red', label='Linear Fit')
+plt.title(f'Cluster {cID_1} coherence over sessions')
+plt.xlabel('Days since first session')
+plt.ylabel('Coherence')
+plt.legend()
+plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID_1}_violin.svg'))
+plt.show()
+
+temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_2].sort_values(by='date')
+
+plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
+
+for i in range(len(temp_sfc_df)):
+    plotting_df = pd.concat([plotting_df, pd.DataFrame({
+        'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
+        'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
+        
+        ignore_index=True)
+
+plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
+
+means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
+
+sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True)
+# plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
+sns.regplot(x='date_rel', y='coherence', data=means, scatter=True, ci=None, color='red', label='Linear Fit')
+plt.title(f'Cluster {cID_2} coherence over sessions')
+plt.xlabel('Days since first session')
+plt.ylabel('Coherence')
+plt.legend()
+plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID_2}_violin.svg'))
+plt.show()
+
+#%% UNFINISHED - thresholding for SFC functions
 SAVEFIG = True
                 
 def get_sfc_threshold(subj: sri.Tracking, pct: float, PLOT: bool):
