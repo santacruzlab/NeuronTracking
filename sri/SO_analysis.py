@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 import os
 import pandas as pd
 import seaborn as sns
-import datetime
+from datetime import datetime
+from matplotlib.patches import Rectangle
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap
 
 from scipy import cluster, stats
 from scipy import signal
@@ -28,6 +31,8 @@ print(os.getcwd())
 
 from utils import sessions as ses
 from utils import sri_master as sri
+
+DUMMY_NUMBER = 1e7
 
 SUBJECT = ['airp', 'braz']
 SESSIONS = dict(zip(SUBJECT, [ses.AIRPORT_SESSIONS, ses.BRAZOS_SESSIONS]))
@@ -52,7 +57,7 @@ ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
 #                     save_folder=SAVE_FOLDER)
 
 braz = sri.Tracking('braz', 
-                    sessions=SESSIONS['braz'], 
+                    sessions=SESSIONS['braz'][0:3], 
                     rotation=ROTATION, 
                     save_folder=SAVE_FOLDER)
 
@@ -220,7 +225,52 @@ for subj in [braz]:
         sfc_df.to_pickle(save_path)
         print(f'Saved SFC for channel {ch} to {save_path}')
 
+#%% Load SFC from file
+braz_sfc_df = pd.DataFrame(columns=['session', 'date', 'channel', 'unit_code', 'coherogram', 'wf_cluster_ID'])
+with os.scandir(SFC_FOLDER) as entries: # find all channels already extracted and saved
+        for entry in entries:
+            if entry.is_file() and entry.name.endswith('.pkl'):
+                braz_sfc_df = pd.concat([braz_sfc_df, pd.read_pickle(os.path.join(SFC_FOLDER, entry.name))], ignore_index=True)
 
+braz_useful_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_useful_df.pkl'))
+if braz is not None:
+    braz.useful_df = braz.useful_df
+    braz.sfc_df = braz_sfc_df
+else:
+    braz_useful_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_useful_df.pkl'))
+
+#%% calc cluster slopes function
+# calc cluster slopes function
+def calc_cluster_slope(subj: sri.Tracking, cIDs: list = None):
+    sfc_df = subj.sfc_df
+    
+    if cIDs is None:
+        sfc_df_filtered = sfc_df[sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
+        cIDs = sfc_df_filtered['wf_cluster_ID'].unique()
+        
+
+    slope_dict = dict(cluster=[], slope=[], p=[])
+
+    for c in cIDs:
+        c_df = sfc_df_filtered[sfc_df_filtered['wf_cluster_ID']==c].sort_values(by='date').reset_index()
+        c_df['date_rel'] = None
+        for i in range(len(c_df)):
+            c_df.at[i, 'date'] = datetime.strptime(c_df.iloc[i]['date'], '%Y%m%d')
+        
+        c_df['date_rel'] = [(c_df['date'].iloc[i] - c_df['date'].min()).days for i in range(len(c_df))]
+
+        result = stats.linregress(
+            list(c_df['date_rel']), 
+            list(np.mean(c_df['coherogram'].iloc[i][:,0][~np.isnan(c_df['coherogram'].iloc[i][:,0])]) for i in range(len(c_df)))
+            )
+
+        slope_dict['cluster'].append(c)
+        slope_dict['slope'].append(result.slope)
+        slope_dict['p'].append(result.pvalue)
+    
+    return pd.DataFrame(slope_dict)
+
+braz_slopes = calc_cluster_slope(braz)
 
 #%% Calc cluster sfc similarity function
 # calc cluster sfc similarity function
@@ -287,51 +337,45 @@ def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame 
         sim_dict['total'] = (sim_dict['correlation'] + sim_dict['euclidean']) / 2
         return sim_dict
 
-#%% Run calc_cluster_sfc_similarity function
-# Run calc_cluster_sfc_similarity function
-
-braz_useful_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_useful_df.pkl'))
-braz_sfc_df = pd.DataFrame(columns=['session', 'date', 'channel', 'unit_code', 'coherogram', 'wf_cluster_ID'])
-with os.scandir(SFC_FOLDER) as entries: # find all channels already extracted and saved
-        for entry in entries:
-            if entry.is_file() and entry.name.endswith('.pkl'):
-                braz_sfc_df = pd.concat([braz_sfc_df, pd.read_pickle(os.path.join(SFC_FOLDER, entry.name))], ignore_index=True)
-
+#%% Make stability figures
+# Make stability figures
 cID_1, cID_2 = 2107, 2553
 # cID_1, cID_2 = 1096, 1098
 
 sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_1, cID_2 = cID_1)
 # sim_df = pd.DataFrame(sim_dict)
 
-plt.figure(figsize=(6, 5))
-sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
-plt.title("Cluster similarities")
-plt.xlabel(f"Cluster {cID_1} Sessions")
-plt.ylabel(f"Cluster {cID_1} Sessions")
+plt.figure(figsize=(10, 6))
+sns.heatmap(sim_dict['total'], xticklabels=[1, 2, 3, 4, 5], yticklabels=[1, 2, 3, 4, 5], annot=True, cmap='Blues', vmin=0, vmax=1)
+plt.title("Delta Band SFC Similarities", fontsize=20)
+plt.xlabel(f"Tracked Session", fontsize=20)
+plt.ylabel(f"Tracked Session", fontsize=20)
+plt.xticks(fontsize=16)
+plt.yticks(fontsize=16)
 plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_1}_similarity.svg'))
 plt.show()
 
-sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_2, cID_2 = cID_2)
-# sim_df = pd.DataFrame(sim_dict)
+# sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_2, cID_2 = cID_2)
+# # sim_df = pd.DataFrame(sim_dict)
 
-plt.figure(figsize=(6, 5))
-sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
-plt.title("Cluster similarities")
-plt.xlabel(f"Cluster {cID_2} Sessions")
-plt.ylabel(f"Cluster {cID_2} Sessions")
-plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_2}_{cID_2}_similarity.svg'))
-plt.show()
+# plt.figure(figsize=(6, 5))
+# sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
+# plt.title("Cluster similarities")
+# plt.xlabel(f"Cluster {cID_2} Sessions")
+# plt.ylabel(f"Cluster {cID_2} Sessions")
+# plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_2}_{cID_2}_similarity.svg'))
+# plt.show()
 
-sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_1, cID_2 = cID_2)
-# sim_df = pd.DataFrame(sim_dict)
+# sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_1, cID_2 = cID_2)
+# # sim_df = pd.DataFrame(sim_dict)
 
-plt.figure(figsize=(6, 5))
-sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
-plt.title("Cluster similarities")
-plt.xlabel(f"Cluster {cID_1} Sessions")
-plt.ylabel(f"Cluster {cID_2} Sessions")
-plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_2}_similarity.svg'))
-plt.show()
+# plt.figure(figsize=(6, 5))
+# sns.heatmap(sim_dict['total'], annot=True, cmap='Blues', vmin=0, vmax=1)
+# plt.title("Cluster similarities")
+# plt.xlabel(f"Cluster {cID_1} Sessions")
+# plt.ylabel(f"Cluster {cID_2} Sessions")
+# plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_2}_similarity.svg'))
+# plt.show()
 
 temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_1].sort_values(by='date')
 
@@ -341,46 +385,222 @@ for i in range(len(temp_sfc_df)):
     plotting_df = pd.concat([plotting_df, pd.DataFrame({
         'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
         'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
-        
         ignore_index=True)
 
 plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
 
 means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
 
-sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True)
+result = stats.linregress(list(means['date_rel']), list(means['coherence']))
+
+print(f"Slope: {result.slope:.4f}")
+print(f"P-value: {result.pvalue}")
+
+fig, ax = plt.subplots(figsize=(10, 6))
+sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True, inner=None, ax=ax)
 # plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
-sns.regplot(x='date_rel', y='coherence', data=means, scatter=True, ci=None, color='red', label='Linear Fit')
-plt.title(f'Cluster {cID_1} coherence over sessions')
-plt.xlabel('Days since first session')
-plt.ylabel('Coherence')
+# plt.axline((0, result.intercept), slope = result.slope, color = 'black', label = f'Slope: {result.slope:.4f}')
+sns.regplot(x='date_rel', 
+            y='coherence', 
+            data=means, 
+            ci=None, 
+            line_kws={"linestyle": "--", "color": "black"}, 
+            scatter_kws={"color": "black", "s": 50}, 
+            label=f'Slope: {result.slope:.3f}')
+plt.title(f'Delta Band Neuron Coherence Over Days', fontsize=20)
+plt.xlabel('Days since 1st session', fontsize=20)
+plt.ylabel('Coherence', fontsize=20)
+plt.xticks(fontsize=16)
+plt.yticks(fontsize=16)
+# plt.text(
+#     x = 0.95,
+#     y = 0.95,
+#     s = f"Slope: {result.slope:.4f}"
+# )
 plt.legend()
 plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID_1}_violin.svg'))
 plt.show()
 
-temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_2].sort_values(by='date')
+# temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_2].sort_values(by='date')
 
-plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
+# plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
 
-for i in range(len(temp_sfc_df)):
-    plotting_df = pd.concat([plotting_df, pd.DataFrame({
-        'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
-        'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
+# for i in range(len(temp_sfc_df)):
+#     plotting_df = pd.concat([plotting_df, pd.DataFrame({
+#         'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
+#         'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
         
-        ignore_index=True)
+#         ignore_index=True)
 
-plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
+# plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
 
-means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
+# means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
 
-sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True)
-# plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
-sns.regplot(x='date_rel', y='coherence', data=means, scatter=True, ci=None, color='red', label='Linear Fit')
-plt.title(f'Cluster {cID_2} coherence over sessions')
-plt.xlabel('Days since first session')
-plt.ylabel('Coherence')
-plt.legend()
-plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID_2}_violin.svg'))
+# result = stats.linregress(list(means['date_rel']), list(means['coherence']))
+
+# print(f"Slope: {result.slope:.4f}")
+# print(f"P-value: {result.pvalue}")
+
+# sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True)
+# # plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
+# sns.regplot(x='date_rel', y='coherence', data=means, scatter=True, ci=None, color='red', label='Linear Fit')
+# plt.title(f'Cluster {cID_2} coherence over sessions')
+# plt.xlabel('Days since first session')
+# plt.ylabel('Coherence')
+# plt.legend()
+# plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID_2}_violin.svg'))
+# plt.show()
+
+f_bands = ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+c_f_bands = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
+
+plt.figure(figsize=(12,4))
+
+for i in range(len(f_bands)):
+    x = np.arange(braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'].shape[0]) + 1
+    y = braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'][:,i]
+    plt.plot(x, y, color=c_f_bands[i], label=f'{f_bands[i]}')
+    y_mean = np.mean(y[~np.isnan(y)])
+    plt.axhline(y=y_mean, color=c_f_bands[i], linestyle='--')
+    if i == 0:
+        plt.text(plt.xlim()[1], y_mean, s=f'{y_mean:.2f}', color = c_f_bands[i], va='bottom', ha='right')
+    
+plt.ylim(0, 0.6)
+plt.title('Log Coherence Over Trials')
+plt.xlabel('Trial Number')
+plt.ylabel('Log Coherence')
+plt.legend(ncols = 5)
+plt.savefig(os.path.join(FIG_FOLDER, 'line', f'[braz]_{cID_1}_line_1'))
+plt.show()
+
+plt.figure(figsize=(12,8))
+
+sfc_means = np.zeros(len(f_bands))
+sfc_std = np.zeros(len(f_bands))
+
+for i in range(len(f_bands)):
+    x = np.arange(braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'].shape[0]) + 1
+    y = braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'][:,i]
+    sfc_means[i] = np.mean(y[~np.isnan(y)])
+    sfc_std[i] = np.std(y[~np.isnan(y)])
+    
+plt.bar(
+    f_bands, 
+    sfc_means, 
+    yerr=sfc_std,
+    error_kw=dict(ecolor="black", elinewidth=2, capsize=5, capthick=2, alpha=0.75)
+    )
+# plt.ylim(0, 0.6)
+plt.title('Coherence by Frequency Band', fontsize=20)
+plt.xticks(fontsize=16)
+plt.yticks(fontsize=16)
+plt.xlabel('Frequency Band', fontsize=20)
+plt.ylabel('Mean Coherence', fontsize=20)
+plt.savefig(os.path.join(FIG_FOLDER, 'bar', f'[braz]_{cID_1}_freq_bands_1'))
+plt.show()
+
+#%% Example coherence figure
+def plot_panel(ax, kappa, phi0=0.0, n_spikes=8, n_cycles=4, seed=None,
+               label=None, show_phi=False):
+    rng = np.random.default_rng(seed)
+ 
+    # --- Field trace (sine wave) ---
+    t = np.linspace(0, n_cycles * 2 * np.pi, 1000)
+    field = np.sin(t)
+    ax.plot(t, field * 0.4 - 0.8, color='black', linewidth=1.8)
+ 
+    # --- Spike phases ---
+    # von Mises gives an angle in [-pi, pi]; kappa controls concentration
+    # (kappa=0 -> uniform/random, kappa large -> tightly locked to phi0)
+    phases = rng.vonmises(mu=phi0, kappa=kappa, size=n_spikes)
+    # map phases into the time axis, spread across the cycles, keep sorted
+    cycle_choices = np.sort(rng.choice(n_cycles, size=n_spikes, replace=True))
+    spike_times = cycle_choices * 2 * np.pi + (phases % (2 * np.pi))
+    spike_times = np.clip(spike_times, 0, n_cycles * 2 * np.pi)
+ 
+    # --- Spike ticks ---
+    for st in spike_times:
+        ax.plot([st, st], [0.3, 1.1], color='black', linewidth=2.5)
+
+    pad = 0.15
+
+    x0, x1 = t[0] - pad, t[-1] + pad
+    y0, y1 = 0.3 - pad, 1.1 + pad
+    ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0,
+                            fill=False, edgecolor='black', linewidth=1.2))
+    
+    x0, x1 = t[0] - pad, t[-1] + pad
+    y0, y1 = -0.8 - 0.4 - pad, -0.8 + 0.4 + pad
+    ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0,
+                            fill=False, edgecolor='black', linewidth=1.2))
+ 
+    # --- Labels ---
+    if label:
+        ax.text(np.mean(t), 1.6, label, fontsize=20, ha='center')
+    if show_phi:
+        ax.text(t[-1] * 0.85, 1.7, r'$\phi = 0\degree$', fontsize=16, va='center')
+ 
+    ax.set_xlim(-0.3, n_cycles * 2 * np.pi + 0.3)
+    ax.set_ylim(-1.8, 2.0)
+    ax.axis('off')
+ 
+ 
+def make_figure(save_path='sfc_schematic.png'):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+ 
+    # Left = low coherence -> small kappa (near-uniform phases)
+    plot_panel(axes[0], kappa=0.05, n_spikes=8, seed=3, label='Low')
+ 
+    # Right = high coherence -> large kappa (phases tightly locked to 0)
+    plot_panel(axes[1], kappa=25, phi0=90.0, n_spikes=8, seed=2,
+               label='High', show_phi=True)
+ 
+    fig.text(0.12, 0.85, 'Coherence', fontsize=20, ha='center')
+    fig.text(0.12, 0.62, 'Spikes', fontsize=20, ha='center')
+    fig.text(0.12, 0.25, 'Field', fontsize=20, ha='center')
+ 
+    plt.tight_layout(rect=[0.20, 0, 1, 1])
+    plt.savefig(save_path, dpi=200, bbox_inches='tight')
+    plt.show()
+ 
+make_figure(os.path.join(FIG_FOLDER, 'ex_coherence', 'sfc_schematic.svg'))
+#%% Example waveforms figure
+def gaussian(t, mu, sigma):
+    return np.exp(-0.5 * ((t - mu) / sigma) ** 2)
+ 
+ 
+def spike_waveform(duration_ms=0.6, n_points=200, amplitude=1.0,
+                    trough_time=0.2, trough_width=0.03,
+                    peak_time=0.3, peak_width=0.07, peak_ratio=0.4):
+    """Generate one smooth, noise-free spike waveform."""
+    t = np.linspace(0, duration_ms, n_points)
+    trough = -(amplitude + 0.35) * gaussian(t, trough_time, trough_width)
+    rebound = amplitude * peak_ratio * gaussian(t, peak_time, peak_width)
+    waveform = trough + rebound
+    return t, waveform
+
+variants = [
+    dict(peak_ratio=0.4, color='#f000ff'),
+    dict(peak_ratio=0.45, color="#aa00ff"),
+    dict(peak_ratio=0.5, color="#4c00ff"),
+    dict(peak_ratio=0.55, color="#0040ff"),
+    dict(peak_ratio=0.6, color="#00b3ff"),
+    dict(peak_ratio=0.65, color='#00f0ff'),
+]
+days = [0, 8, 14, 22, 37, 45]
+
+fig, axes = plt.subplots(1, len(variants), figsize=(10, 2.5))
+for ax, v, d in zip(axes, variants, days):
+    t, wf = spike_waveform(peak_ratio=v['peak_ratio'])
+    ax.plot(t, wf, v['color'])
+    ax.text(0.3, .90, f'Day {d}', ha='center', fontsize=20)
+    ax.set_xlim(t.min(), t.max())
+    ax.set_ylim(-1.2, 0.7)
+    ax.axis('off')
+
+plt.suptitle('Tracked Neuron Waveforms', fontsize=22)
+plt.tight_layout(w_pad=2)
+plt.savefig(os.path.join(FIG_FOLDER, 'ex_waveforms', 'waveform_days.svg'), dpi=200, bbox_inches='tight')
 plt.show()
 
 #%% UNFINISHED - thresholding for SFC functions
