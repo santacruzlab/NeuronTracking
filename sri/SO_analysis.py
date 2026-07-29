@@ -48,6 +48,9 @@ for i, sessions in enumerate([ ses.AIRPORT_SESSIONS_1, ses.AIRPORT_SESSIONS_2, s
 SUBJECT_COLOR = dict(zip(SUBJECT, ['g', 'b'])) # airp is green, braz is blue.
 ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
 
+braz = None
+airp = None
+
 #%% Initialize tracking objects
 # Initialize tracking objects for Airport and Brazos.
 
@@ -57,7 +60,7 @@ ROTATION_CLR = {50: 'blue', 90: 'red', 270: 'green', 310: 'orange'}
 #                     save_folder=SAVE_FOLDER)
 
 braz = sri.Tracking('braz', 
-                    sessions=SESSIONS['braz'][0:3], 
+                    sessions=SESSIONS['braz'], 
                     rotation=ROTATION, 
                     save_folder=SAVE_FOLDER)
 
@@ -101,6 +104,7 @@ def sfc_of_single_unit(subj: sri.Tracking, session: str, unit_code: str, channel
     
     # All non-error-clamped trials in the first block
     trial = ind[(ind['block_type']==1)&(ind['error_clamp']==0)] 
+    directions = np.array(trial['direction'])
     align_pts = np.array(bmi.rpp_target[trial['trial_number']] / 30, dtype=int)
     
     # This is for randomized align_pts
@@ -172,10 +176,10 @@ def sfc_of_single_unit(subj: sri.Tracking, session: str, unit_code: str, channel
 
     # print the error and skip if any error occurs (e.g., no spike times, or not enough data points for the aligned period)
         
-    return np.array(session_coherences)
-#%% Run SFC Function: save per unit
-# Run SFC Function: save per unit
-for subj in [braz]:
+    return np.array(session_coherences), directions
+#%% Save SFC dfs function
+# Save SFC dfs function
+def save_sfc_df(subj: sri.Tracking, channels = None):
     all_channels = np.array(subj.useful_channel)
     processed_channels = []
 
@@ -185,11 +189,12 @@ for subj in [braz]:
                 processed_channels.append(int(entry.name[-7:-4]))
 
     all_channels = np.setdiff1d(all_channels, processed_channels)
-
-    channels = np.random.choice(all_channels, min(10, len(all_channels)), replace=False) # Randomly select 10 channels or all if less than 10
-    # print(f'{subj.subject} - Selected channels: {channels}')
-    print(f"{subj.subject} - Remaining channels to process: {len(all_channels)}")
-    print(f"{subj.subject} - Selected channels: {[int(x) for x in channels]}")
+    if channels is None:
+        channels = np.random.choice(all_channels, min(10, len(all_channels)), replace=False) # Randomly select 10 channels or all if less than 10
+        print(f"{subj.subject} - Remaining channels to process: {len(all_channels)}")
+        print(f"{subj.subject} - Selected channels: {[int(x) for x in channels]}")
+    else:
+        print(f"{subj.subject} - Channel selection overriden: {[int(x) for x in channels]}")
 
     for ch in channels:
         ch_df = subj.useful_df[subj.useful_df['channel'] == ch]
@@ -225,7 +230,40 @@ for subj in [braz]:
         sfc_df.to_pickle(save_path)
         print(f'Saved SFC for channel {ch} to {save_path}')
 
+for subj in [braz]:
+    save_sfc_df(braz)
+    
+
+#%% Add direction to SFC dataframes
+# Add direction to SFC dataframes
+def add_direction_to_sfc_df(subj: sri.Tracking, channels = None):
+    processed_channels = []
+
+    with os.scandir(SFC_FOLDER) as entries: # find all channels already extracted and saved
+        for entry in entries:
+            if entry.is_file() and entry.name.endswith('.pkl'):
+                file_path = os.path.join(SFC_FOLDER, entry.name)
+                ch_sfc_df = pd.read_pickle(file_path)
+                if not 'direction' in ch_sfc_df.columns:
+                    ch_sfc_df['direction'] = None
+                    # add the direction column into the df
+                    for i in range(len(ch_sfc_df)):
+                        ses = ch_sfc_df.iloc[i]['session']
+                        bmi = subj.raw_data[ses]
+                        ind = bmi.index
+
+                        trials = ind[(ind['block_type']==1)&(ind['error_clamp']==0)]
+                        directions = np.array(trials['direction'])
+                        ch_sfc_df.at[i, 'direction'] = directions
+
+                    # overwrite the currently saved .pkl file with the new one that has 'direction' column
+                    ch_sfc_df.to_pickle(file_path)
+
+                print(f"Replaced channel {int(entry.name[-7:-4])}")
+                processed_channels.append(int(entry.name[-7:-4]))
+
 #%% Load SFC from file
+# Load SFC from file
 braz_sfc_df = pd.DataFrame(columns=['session', 'date', 'channel', 'unit_code', 'coherogram', 'wf_cluster_ID'])
 with os.scandir(SFC_FOLDER) as entries: # find all channels already extracted and saved
         for entry in entries:
@@ -241,15 +279,14 @@ else:
 
 #%% calc cluster slopes function
 # calc cluster slopes function
-def calc_cluster_slope(subj: sri.Tracking, cIDs: list = None):
-    sfc_df = subj.sfc_df
+def calc_cluster_slope(sfc_df: pd.DataFrame, cIDs: list = None):
     
     if cIDs is None:
         sfc_df_filtered = sfc_df[sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
         cIDs = sfc_df_filtered['wf_cluster_ID'].unique()
         
 
-    slope_dict = dict(cluster=[], slope=[], p=[])
+    slope_dict = dict(cluster=[], channel=[], slope=[], p=[])
 
     for c in cIDs:
         c_df = sfc_df_filtered[sfc_df_filtered['wf_cluster_ID']==c].sort_values(by='date').reset_index()
@@ -265,13 +302,66 @@ def calc_cluster_slope(subj: sri.Tracking, cIDs: list = None):
             )
 
         slope_dict['cluster'].append(c)
+        slope_dict['channel'].append(c_df.iloc[0]['channel'])
         slope_dict['slope'].append(result.slope)
         slope_dict['p'].append(result.pvalue)
     
     return pd.DataFrame(slope_dict)
 
-braz_slopes = calc_cluster_slope(braz)
+braz_slopes = calc_cluster_slope(braz_sfc_df)
 
+#%% Violin plot function
+# violin plot function
+def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame):
+    temp_sfc_df = sfc_df[braz_sfc_df['wf_cluster_ID']==cID].sort_values(by='date')
+
+    plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
+
+    for i in range(len(temp_sfc_df)):
+        plotting_df = pd.concat([plotting_df, pd.DataFrame({
+            'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
+            'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
+            ignore_index=True)
+
+    plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
+
+    means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
+
+    result = stats.linregress(list(means['date_rel']), list(means['coherence']))
+
+    print(f"Channel: {temp_sfc_df.iloc[0]['channel']}")
+    print(f"Cluster: {cID}")
+    print(f"Slope: {result.slope:.4f}")
+    print(f"P-value: {result.pvalue}")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True, inner=None, ax=ax)
+    # plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
+    # plt.axline((0, result.intercept), slope = result.slope, color = 'black', label = f'Slope: {result.slope:.4f}')
+    sns.regplot(x='date_rel', 
+                y='coherence', 
+                data=means, 
+                ci=None, 
+                line_kws={"linestyle": "--", "color": "black"}, 
+                scatter_kws={"color": "black", "s": 50}, 
+                label=f'Slope: {result.slope:.3f}')
+    plt.title(f'Delta Band Neuron Coherence Over Days', fontsize=20)
+    plt.xlabel('Days since 1st session', fontsize=20)
+    plt.ylabel('Coherence', fontsize=20)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    # plt.text(
+    #     x = 0.95,
+    #     y = 0.95,
+    #     s = f"Slope: {result.slope:.4f}"
+    # )
+    plt.legend()
+    plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID}_violin.svg'))
+    plt.show()
+
+fig_cluster_violin_plot(cID=1080, sfc_df=braz_sfc_df)
+
+#%% ANOVA function
 #%% Calc cluster sfc similarity function
 # calc cluster sfc similarity function
 def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame = None, cID_1: int = None, cID_2: int = None):
@@ -330,7 +420,7 @@ def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame 
                     )
 
                     # print(f'[{metric}] Similarity between cluster {cID_1} (session {i}) and cluster {cID_2} (session {j}): {sim_temp[i,j]:.4f}')
-            
+
             sim_temp = sri.Tracking.rescale(sim_temp, metric=metric)
             sim_dict[metric] = sim_temp
 
@@ -376,50 +466,6 @@ plt.show()
 # plt.ylabel(f"Cluster {cID_2} Sessions")
 # plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_2}_similarity.svg'))
 # plt.show()
-
-temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_1].sort_values(by='date')
-
-plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
-
-for i in range(len(temp_sfc_df)):
-    plotting_df = pd.concat([plotting_df, pd.DataFrame({
-        'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
-        'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
-        ignore_index=True)
-
-plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
-
-means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
-
-result = stats.linregress(list(means['date_rel']), list(means['coherence']))
-
-print(f"Slope: {result.slope:.4f}")
-print(f"P-value: {result.pvalue}")
-
-fig, ax = plt.subplots(figsize=(10, 6))
-sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True, inner=None, ax=ax)
-# plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
-# plt.axline((0, result.intercept), slope = result.slope, color = 'black', label = f'Slope: {result.slope:.4f}')
-sns.regplot(x='date_rel', 
-            y='coherence', 
-            data=means, 
-            ci=None, 
-            line_kws={"linestyle": "--", "color": "black"}, 
-            scatter_kws={"color": "black", "s": 50}, 
-            label=f'Slope: {result.slope:.3f}')
-plt.title(f'Delta Band Neuron Coherence Over Days', fontsize=20)
-plt.xlabel('Days since 1st session', fontsize=20)
-plt.ylabel('Coherence', fontsize=20)
-plt.xticks(fontsize=16)
-plt.yticks(fontsize=16)
-# plt.text(
-#     x = 0.95,
-#     y = 0.95,
-#     s = f"Slope: {result.slope:.4f}"
-# )
-plt.legend()
-plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID_1}_violin.svg'))
-plt.show()
 
 # temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_2].sort_values(by='date')
 
