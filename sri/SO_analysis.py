@@ -258,9 +258,14 @@ def add_direction_to_sfc_df(subj: sri.Tracking, channels = None):
 
                     # overwrite the currently saved .pkl file with the new one that has 'direction' column
                     ch_sfc_df.to_pickle(file_path)
+                
+                    print(f"Replaced channel {int(entry.name[-7:-4])}")
+                    processed_channels.append(int(entry.name[-7:-4]))
 
-                print(f"Replaced channel {int(entry.name[-7:-4])}")
-                processed_channels.append(int(entry.name[-7:-4]))
+    if len(processed_channels) < 1:
+        print("No modifications made.")
+
+add_direction_to_sfc_df(subj = braz)
 
 #%% Load SFC from file
 # Load SFC from file
@@ -280,9 +285,10 @@ else:
 #%% calc cluster slopes function
 # calc cluster slopes function
 def calc_cluster_slope(sfc_df: pd.DataFrame, cIDs: list = None):
+
+    sfc_df_filtered = sfc_df[sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
     
     if cIDs is None:
-        sfc_df_filtered = sfc_df[sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
         cIDs = sfc_df_filtered['wf_cluster_ID'].unique()
         
 
@@ -362,6 +368,22 @@ def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame):
 fig_cluster_violin_plot(cID=1080, sfc_df=braz_sfc_df)
 
 #%% ANOVA function
+# ANOVA function
+def run_cluster_anova(sfc_df: pd.DataFrame, cID): 
+    c_sfc_df = sfc_df[sfc_df['wf_cluster_ID'] == cID]
+    cluster_coherences = [c_sfc_df.iloc[i]['coherogram'][:,0] for i in range(len(c_sfc_df))]
+    f_statistic, p_value = stats.f_oneway(*cluster_coherences)
+
+    print(f"Channel {c_sfc_df.iloc[0]['channel']}, Cluster {cID}")
+    print(f"P-value: {p_value:.4e}")
+
+
+
+
+useful_sfc_df = braz_sfc_df[braz_sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
+clusters_to_analyze = useful_sfc_df['wf_cluster_ID'].unique()
+for c in clusters_to_analyze:
+    run_cluster_anova(sfc_df = useful_sfc_df, cID = c)
 #%% Calc cluster sfc similarity function
 # calc cluster sfc similarity function
 def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame = None, cID_1: int = None, cID_2: int = None):
