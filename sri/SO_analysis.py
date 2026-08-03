@@ -318,8 +318,13 @@ braz_slopes = calc_cluster_slope(braz_sfc_df)
 
 #%% Violin plot function
 # violin plot function
-def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame):
-    temp_sfc_df = sfc_df[braz_sfc_df['wf_cluster_ID']==cID].sort_values(by='date')
+def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame, direction = None):
+    temp_sfc_df = sfc_df[sfc_df['wf_cluster_ID']==cID].sort_values(by='date').reset_index()
+
+    if direction is not None:
+        for i in range(len(temp_sfc_df)):
+            dir_sfc = temp_sfc_df.iloc[i]['coherogram'][temp_sfc_df.iloc[i]['direction'] == direction]
+            temp_sfc_df.at[i, 'coherogram'] = np.array(dir_sfc)
 
     plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
 
@@ -337,6 +342,7 @@ def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame):
 
     print(f"Channel: {temp_sfc_df.iloc[0]['channel']}")
     print(f"Cluster: {cID}")
+    print(f"Direction: {direction if direction is not None else 'All'}")
     print(f"Slope: {result.slope:.4f}")
     print(f"P-value: {result.pvalue}")
 
@@ -351,7 +357,7 @@ def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame):
                 line_kws={"linestyle": "--", "color": "black"}, 
                 scatter_kws={"color": "black", "s": 50}, 
                 label=f'Slope: {result.slope:.3f}')
-    plt.title(f'Delta Band Neuron Coherence Over Days', fontsize=20)
+    plt.title(f'Delta Band Neuron Coherence Over Days {" - Dir: "if direction is not None else ""} {direction if direction is not None else ""}', fontsize=20)
     plt.xlabel('Days since 1st session', fontsize=20)
     plt.ylabel('Coherence', fontsize=20)
     plt.xticks(fontsize=16)
@@ -362,10 +368,10 @@ def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame):
     #     s = f"Slope: {result.slope:.4f}"
     # )
     plt.legend()
-    plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID}_violin.svg'))
+    plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID}_violin{direction if direction is not None else ""}.svg'))
     plt.show()
 
-fig_cluster_violin_plot(cID=1080, sfc_df=braz_sfc_df)
+# fig_cluster_violin_plot(cID=1080, sfc_df=braz_sfc_df)
 
 #%% ANOVA function
 # ANOVA function
@@ -566,6 +572,27 @@ plt.xlabel('Frequency Band', fontsize=20)
 plt.ylabel('Mean Coherence', fontsize=20)
 plt.savefig(os.path.join(FIG_FOLDER, 'bar', f'[braz]_{cID_1}_freq_bands_1'))
 plt.show()
+
+#%% Analysis by direction
+directions = [0, 45, 90, 135, 180, 225, 270, 315]
+cID = 2107
+c_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID]
+for i in range(len(c_sfc_df)):
+    temp_sfc_ses = c_sfc_df.iloc[i]
+    print(f"Session: {temp_sfc_ses['session']}")
+    dir_sfc_dict = dict(direction=[], coherences=[])
+    for d in directions:
+        dir_sfc = temp_sfc_ses['coherogram'][:, 0][temp_sfc_ses['direction'] == d]
+        dir_sfc_dict['direction'].append(d)
+        dir_sfc_dict['coherences'].append(dir_sfc)
+
+    dir_sfc_df = pd.DataFrame(dir_sfc_dict)
+    sns.violinplot(x='direction', y='coherences', data=dir_sfc_df.explode('coherences').reset_index(drop=True), inner=None, fill=False, alpha=0.2)
+plt.show()
+
+fig_cluster_violin_plot(cID=2107, sfc_df=braz_sfc_df)
+for d in directions:
+    fig_cluster_violin_plot(cID=2107, sfc_df=braz_sfc_df, direction=d)
 
 #%% Example coherence figure
 def plot_panel(ax, kappa, phi0=0.0, n_spikes=8, n_cycles=4, seed=None,
@@ -940,7 +967,7 @@ for subj in [braz]: # For each subject
             grp.create_dataset("coherograms", data=out)
             grp.attrs['sessions'] = np.array(ses)
 
-# %% Visualize coherence over trials for each cluster in the tracking objects.
+#%% Visualize coherence over trials for each cluster in the tracking objects.
 os.chdir(FIG_FOLDER)
 
 with h5py.File(os.path.join(OUTPUT_DATA_FOLDER, f'braz_sfc.h5'), 'r') as h5file:
