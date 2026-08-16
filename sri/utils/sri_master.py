@@ -884,9 +884,9 @@ class Tracking:
         self.calc_matched_units()
         self.get_clusters()
         
-        # print(f'[{self.subject}] Post-processing analysis')
-        # self.calc_tuning()
-        # self.calc_PD_metric()
+        print(f'[{self.subject}] Post-processing analysis')
+        self.calc_tuning()
+        self.calc_PD_metric()
         
         
     @staticmethod

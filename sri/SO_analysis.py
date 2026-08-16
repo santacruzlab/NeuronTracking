@@ -8,10 +8,12 @@ import matplotlib.pyplot as plt
 import os
 import pandas as pd
 import seaborn as sns
+import pingouin
 from datetime import datetime
 from matplotlib.patches import Rectangle
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap
+from statsmodels.graphics.mosaicplot import mosaic
 
 from scipy import cluster, stats
 from scipy import signal
@@ -60,7 +62,7 @@ airp = None
 #                     save_folder=SAVE_FOLDER)
 
 braz = sri.Tracking('braz', 
-                    sessions=SESSIONS['braz'], 
+                    sessions=SESSIONS['braz'][0:3], 
                     rotation=ROTATION, 
                     save_folder=SAVE_FOLDER)
 
@@ -210,7 +212,7 @@ def save_sfc_df(subj: sri.Tracking, channels = None):
 
             print(f'Processing unit {unit_code} in session {session} on channel {channel}')
             try: 
-                out = sfc_of_single_unit(subj, session, unit_code, channel)
+                out, directions = sfc_of_single_unit(subj, session, unit_code, channel)
             except Exception as e:
                 print(f'Error occurred while processing unit {unit_code} in session {session}')
                 continue
@@ -221,7 +223,8 @@ def save_sfc_df(subj: sri.Tracking, channels = None):
                 'channel': [channel],
                 'unit_code': [unit_code],
                 'coherogram': [out],
-                'wf_cluster_ID': [cluster_ID]
+                'wf_cluster_ID': [cluster_ID],
+                'direction': [directions]
             })], ignore_index=True)
 
         # Save the results for this channel
@@ -269,56 +272,73 @@ add_direction_to_sfc_df(subj = braz)
 
 #%% Load SFC from file
 # Load SFC from file
-braz_sfc_df = pd.DataFrame(columns=['session', 'date', 'channel', 'unit_code', 'coherogram', 'wf_cluster_ID'])
+braz_sfc_df = pd.DataFrame(columns=['session', 'date', 'channel', 'unit_code', 'coherogram', 'wf_cluster_ID', 'direction'])
 with os.scandir(SFC_FOLDER) as entries: # find all channels already extracted and saved
         for entry in entries:
             if entry.is_file() and entry.name.endswith('.pkl'):
                 braz_sfc_df = pd.concat([braz_sfc_df, pd.read_pickle(os.path.join(SFC_FOLDER, entry.name))], ignore_index=True)
 
 braz_useful_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_useful_df.pkl'))
+braz_clusters = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_clusters.pkl'))
+braz_useful_clusters = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_useful_clusters.pkl'))
 if braz is not None:
     braz.useful_df = braz.useful_df
     braz.sfc_df = braz_sfc_df
-else:
-    braz_useful_df = pd.read_pickle(os.path.join(OUTPUT_DATA_FOLDER, 'braz_useful_df.pkl'))
+    braz.clusters = braz_clusters
+    braz.useful_clusters = braz_useful_clusters
+
+#%% inspect clusters df
+# inspect clusters df
+# all clusters tuning significance are the same
+# all useful clusters are tuned
+stable_pd = []
+unstable_pd = []
+
+for c in braz_useful_clusters.itertuples():
+    if c.PD_span_pval > 0.05:
+        unstable_pd.append(c.cluster_ID)
+    else:
+        stable_pd.append(c.cluster_ID)
+
+print(f"Stable clusters: {len(stable_pd)}")
+print(f"Unstable clusters: {len(unstable_pd)}")
 
 #%% calc cluster slopes function
 # calc cluster slopes function
-def calc_cluster_slope(sfc_df: pd.DataFrame, cIDs: list = None):
+def calc_cluster_slope(sfc_df: pd.DataFrame, cID: int = None, f_band: int = 0):
 
     sfc_df_filtered = sfc_df[sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
     
-    if cIDs is None:
-        cIDs = sfc_df_filtered['wf_cluster_ID'].unique()
-        
+    if cID is None:
+        cID = np.random.choice(sfc_df_filtered['wf_cluster_ID'].unique())
 
-    slope_dict = dict(cluster=[], channel=[], slope=[], p=[])
+    reg_dict = dict(date_rel=[], coherence=[])
 
-    for c in cIDs:
-        c_df = sfc_df_filtered[sfc_df_filtered['wf_cluster_ID']==c].sort_values(by='date').reset_index()
-        c_df['date_rel'] = None
-        for i in range(len(c_df)):
-            c_df.at[i, 'date'] = datetime.strptime(c_df.iloc[i]['date'], '%Y%m%d')
-        
-        c_df['date_rel'] = [(c_df['date'].iloc[i] - c_df['date'].min()).days for i in range(len(c_df))]
-
-        result = stats.linregress(
-            list(c_df['date_rel']), 
-            list(np.mean(c_df['coherogram'].iloc[i][:,0][~np.isnan(c_df['coherogram'].iloc[i][:,0])]) for i in range(len(c_df)))
-            )
-
-        slope_dict['cluster'].append(c)
-        slope_dict['channel'].append(c_df.iloc[0]['channel'])
-        slope_dict['slope'].append(result.slope)
-        slope_dict['p'].append(result.pvalue)
+    # print(f"Processing cluster {cID}")
+    c_df = sfc_df_filtered[sfc_df_filtered['wf_cluster_ID']==cID].sort_values(by='date').reset_index()
+    for i in range(len(c_df)):
+        c_df.at[i, 'date'] = datetime.strptime(c_df.iloc[i]['date'], '%Y%m%d')
     
-    return pd.DataFrame(slope_dict)
+    reg_dict['date_rel'] = [(c_df['date'].iloc[i] - c_df['date'].min()).days for i in range(len(c_df))]
+    reg_coherences = []
+    for i in range(len(c_df)):
+        reg_coherences.append(c_df['coherogram'].iloc[i][:,f_band]) 
 
-braz_slopes = calc_cluster_slope(braz_sfc_df)
+    reg_dict['coherence'] = reg_coherences
+    reg_df = pd.DataFrame(reg_dict)
+    reg_df = reg_df.explode('coherence').reset_index(drop=True)
+
+    result = stats.linregress(
+        list(reg_df['date_rel']),
+        list(reg_df['coherence']),
+        nan_policy='omit'
+    )    
+    return result
+
 
 #%% Violin plot function
 # violin plot function
-def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame, direction = None):
+def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame, f_band: int = 0, direction = None):
     temp_sfc_df = sfc_df[sfc_df['wf_cluster_ID']==cID].sort_values(by='date').reset_index()
 
     if direction is not None:
@@ -331,32 +351,40 @@ def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame, direction = None):
     for i in range(len(temp_sfc_df)):
         plotting_df = pd.concat([plotting_df, pd.DataFrame({
             'date_abs': datetime.strptime(temp_sfc_df.iloc[i]['date'], '%Y%m%d'), 
-            'coherence': temp_sfc_df.iloc[i]['coherogram'][:, 0]})], 
+            'coherence': temp_sfc_df.iloc[i]['coherogram'][:, f_band]})], 
             ignore_index=True)
 
     plotting_df['date_rel'] = [(plotting_df['date_abs'].iloc[i] - plotting_df['date_abs'].min()).days for i in range(len(plotting_df))]
 
-    means = plotting_df.groupby('date_rel')['coherence'].mean().reset_index()
-
-    result = stats.linregress(list(means['date_rel']), list(means['coherence']))
+    result = calc_cluster_slope(sfc_df = braz_sfc_df, cID = cID, f_band=f_band)
 
     print(f"Channel: {temp_sfc_df.iloc[0]['channel']}")
     print(f"Cluster: {cID}")
     print(f"Direction: {direction if direction is not None else 'All'}")
     print(f"Slope: {result.slope:.4f}")
     print(f"P-value: {result.pvalue}")
+    print(f"R-squared: {result.rvalue ** 2}")
+
+    x_range = np.array([plotting_df['date_rel'].iloc[0], plotting_df['date_rel'].iloc[len(plotting_df)-1]])
+    y_fit = result.slope * x_range + result.intercept
 
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.violinplot(x='date_rel', y='coherence', data=plotting_df, native_scale=True, inner=None, ax=ax)
-    # plt.plot(means['date_rel'], means['coherence'], color='red', marker='o', linestyle='-', label='Mean Coherence')
-    # plt.axline((0, result.intercept), slope = result.slope, color = 'black', label = f'Slope: {result.slope:.4f}')
-    sns.regplot(x='date_rel', 
-                y='coherence', 
-                data=means, 
-                ci=None, 
-                line_kws={"linestyle": "--", "color": "black"}, 
-                scatter_kws={"color": "black", "s": 50}, 
-                label=f'Slope: {result.slope:.3f}')
+    ax.plot(
+        x_range, 
+        y_fit, 
+        color='black',
+        linewidth=2.5,
+        linestyle='--',
+        label=f'Slope: {result.slope:.3f}'
+    )
+    # sns.regplot(x='date_rel', 
+    #             y='coherence', 
+    #             data=means, 
+    #             ci=None, 
+    #             line_kws={"linestyle": "--", "color": "black"}, 
+    #             scatter_kws={"color": "black", "s": 50}, 
+    #             label=f'Slope: {result.slope:.3f}')
     plt.title(f'Delta Band Neuron Coherence Over Days {" - Dir: "if direction is not None else ""} {direction if direction is not None else ""}', fontsize=20)
     plt.xlabel('Days since 1st session', fontsize=20)
     plt.ylabel('Coherence', fontsize=20)
@@ -371,25 +399,243 @@ def fig_cluster_violin_plot(cID: int, sfc_df: pd.DataFrame, direction = None):
     plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID}_violin{direction if direction is not None else ""}.svg'))
     plt.show()
 
-# fig_cluster_violin_plot(cID=1080, sfc_df=braz_sfc_df)
+# for f in range(0, 5):
+#     fig_cluster_violin_plot(cID=2107, sfc_df=braz_sfc_df, f_band=f)
+
+#%% Equal variance test function
+def run_equal_variance_test(sfc_df: pd.DataFrame, cID, f_band: int = 0):
+    c_sfc_df = sfc_df[sfc_df['wf_cluster_ID'] == cID].reset_index()
+    c_sfc_df['band_coherence'] = None
+    for i in range(len(c_sfc_df)):
+        temp_coherences = c_sfc_df.iloc[i]['coherogram'][:, f_band][~np.isnan(c_sfc_df.iloc[i]['coherogram'][:, f_band])]
+        c_sfc_df.at[i, 'band_coherence'] = temp_coherences
+    cluster_coherences = [c_sfc_df.iloc[i]['band_coherence'] for i in range(len(c_sfc_df))]
+    stat, p_value = stats.levene(*cluster_coherences)
+
+    # print(f"Channel {c_sfc_df.iloc[0]['channel']}, Cluster {cID}")
+    # print(f"P-value: {p_value:.4e}")
+
+    return p_value
 
 #%% ANOVA function
 # ANOVA function
-def run_cluster_anova(sfc_df: pd.DataFrame, cID): 
-    c_sfc_df = sfc_df[sfc_df['wf_cluster_ID'] == cID]
-    cluster_coherences = [c_sfc_df.iloc[i]['coherogram'][:,0] for i in range(len(c_sfc_df))]
-    f_statistic, p_value = stats.f_oneway(*cluster_coherences)
+def run_cluster_anova(sfc_df: pd.DataFrame, cID, f_band: int = 0, check_var: bool = True): 
+    c_sfc_df = sfc_df[sfc_df['wf_cluster_ID'] == cID].reset_index()
+    c_sfc_df['band_coherence'] = None
+    for i in range(len(c_sfc_df)):
+        temp_coherences = c_sfc_df.iloc[i]['coherogram'][:, f_band][~np.isnan(c_sfc_df.iloc[i]['coherogram'][:, f_band])]
+        c_sfc_df.at[i, 'band_coherence'] = temp_coherences
+    cluster_coherences = [c_sfc_df.iloc[i]['band_coherence'] for i in range(len(c_sfc_df))]
 
-    print(f"Channel {c_sfc_df.iloc[0]['channel']}, Cluster {cID}")
-    print(f"P-value: {p_value:.4e}")
+    if check_var:
+        var_p_value = run_equal_variance_test(sfc_df = sfc_df, cID = cID, f_band = f_band)
+    
+        if var_p_value > 0.05:
+            # print(f"Equal variance assumption met for cluster {cID}. Using standard t-test.")
+            t_statistic, p_value = stats.ttest_ind(cluster_coherences[0], cluster_coherences[len(cluster_coherences)-1], equal_var=True)
+        else:
+            # print(f"Equal variance assumption not met for cluster {cID}. Using Welch's t-test.")
+            data = pd.DataFrame({'coherence': np.concatenate(cluster_coherences), 'group': np.repeat(range(len(cluster_coherences)), [len(c) for c in cluster_coherences])})
+            aov = pingouin.welch_anova(data=data, dv='coherence', between='group')
+            p_value = aov['p-unc'].values[0]
+    else: 
+        data = pd.DataFrame({'coherence': np.concatenate(cluster_coherences), 'group': np.repeat(range(len(cluster_coherences)), [len(c) for c in cluster_coherences])})
+        aov = pingouin.welch_anova(data=data, dv='coherence', between='group')
+        p_value = aov['p-unc'].values[0]
 
+    # print(f"Channel {c_sfc_df.iloc[0]['channel']}, Cluster {cID}")
+    # print(f"P-value: {p_value:.4e}")
 
+    return p_value
 
+#%% t-test function
+# t-test function
+def run_cluster_ttest(sfc_df: pd.DataFrame, cID, f_band: int = 0, check_var: bool = True):
+    c_sfc_df = sfc_df[sfc_df['wf_cluster_ID'] == cID].reset_index()
+    c_sfc_df['band_coherence'] = None
+    for i in range(len(c_sfc_df)):
+        temp_coherences = c_sfc_df.iloc[i]['coherogram'][:, f_band][~np.isnan(c_sfc_df.iloc[i]['coherogram'][:, f_band])]
+        c_sfc_df.at[i, 'band_coherence'] = temp_coherences
+    cluster_coherences = [c_sfc_df.iloc[i]['band_coherence'] for i in range(len(c_sfc_df))]
 
+    if check_var:
+        stat, var_p_value = stats.levene(*[cluster_coherences[0], cluster_coherences[len(cluster_coherences)-1]])
+
+        if var_p_value > 0.05:
+            # print(f"Equal variance assumption met for cluster {cID}. Using standard t-test.")
+            t_statistic, p_value = stats.ttest_ind(cluster_coherences[0], cluster_coherences[len(cluster_coherences)-1], equal_var=True)
+        else:
+            # print(f"Equal variance assumption not met for cluster {cID}. Using Welch's t-test.")
+            t_statistic, p_value = stats.ttest_ind(cluster_coherences[0], cluster_coherences[len(cluster_coherences)-1], equal_var=False)
+    else: 
+        t_statistic, p_value = stats.ttest_ind(cluster_coherences[0], cluster_coherences[len(cluster_coherences)-1], equal_var=False)
+    # print(f"Channel {c_sfc_df.iloc[0]['channel']}, Cluster {cID}")
+    # print(f"P-value: {p_value:.4e}")
+
+    return p_value
+
+#%% Run stat test functions
+# run stat test functions
 useful_sfc_df = braz_sfc_df[braz_sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
 clusters_to_analyze = useful_sfc_df['wf_cluster_ID'].unique()
+
+# run_cluster_ttest(sfc_df = useful_sfc_df, cID = np.random.choice(clusters_to_analyze))
+
+# var_p_values = []
+# for c in clusters_to_analyze:
+#     var_p_values.append(run_equal_variance_test(sfc_df = useful_sfc_df, cID = c))
+
+# print(f"{np.count_nonzero(np.array(var_p_values) > 0.05)}/{len(clusters_to_analyze)} clusters have equal variance.")
+
+slope_p_values = []
+slopes = []
+sig_clusters_slope = []
+insig_clusters_slope = []
 for c in clusters_to_analyze:
-    run_cluster_anova(sfc_df = useful_sfc_df, cID = c)
+    result = calc_cluster_slope(sfc_df = useful_sfc_df, cID = c)
+    slope_p_values.append(result.pvalue)
+    slopes.append(result.slope)
+    if result.pvalue < 0.05: 
+        sig_clusters_slope.append(c)
+    else:
+        insig_clusters_slope.append(c)
+
+
+print(f"{np.count_nonzero(np.array(slope_p_values) < 0.05)}/{len(clusters_to_analyze)} clusters are statistically significant.")
+plt.bar(x = ['Significant', 'Insignificant'], height = [np.count_nonzero(np.array(slope_p_values) < 0.05), np.count_nonzero(np.array(slope_p_values) >= 0.05)])
+plt.xlabel('Statistical Significance')
+plt.ylabel('Number of Clusters')
+plt.title('Slope Results')
+plt.show()
+
+compare_sig = list(set(sig_clusters_slope) & set(unstable_pd))
+compare_insig = list(set(insig_clusters_slope) & set(stable_pd))
+print(f"{len(compare_sig)}/{len(clusters_to_analyze)} clusters are significant in both slope and unstable.")
+
+ttest_p_values = []
+sig_clusters_ttest = []
+insig_clusters_ttest = []
+for c in clusters_to_analyze:
+    p_val = run_cluster_ttest(sfc_df = useful_sfc_df, cID = c, check_var = False)
+    ttest_p_values.append(p_val)
+    if p_val < 0.05: 
+        sig_clusters_ttest.append(c)
+    else:
+        insig_clusters_ttest.append(c)
+
+
+print(f"{np.count_nonzero(np.array(ttest_p_values) < 0.05)}/{len(clusters_to_analyze)} clusters are statistically significant.")
+plt.bar(x = ['Significant', 'Insignificant'], height = [np.count_nonzero(np.array(ttest_p_values) < 0.05), np.count_nonzero(np.array(ttest_p_values) >= 0.05)])
+plt.xlabel('Statistical Significance')
+plt.ylabel('Number of Clusters')
+plt.title('T-Test Results')
+plt.show()
+
+anova_p_values = []
+sig_clusters_anova = []
+insig_clusters_anova = []
+for c in clusters_to_analyze:
+    p_val = run_cluster_anova(sfc_df = useful_sfc_df, cID = c, check_var = False)
+    anova_p_values.append(p_val)
+    if p_val < 0.05: 
+        sig_clusters_anova.append(c)
+    else:
+        insig_clusters_anova.append(c)
+
+print(f"{np.count_nonzero(np.array(anova_p_values) < 0.05)}/{len(clusters_to_analyze)} clusters are statistically significant.")
+plt.bar(x = ['Significant', 'Insignificant'], height = [np.count_nonzero(np.array(anova_p_values) < 0.05), np.count_nonzero(np.array(anova_p_values) >= 0.05)])
+plt.xlabel('Statistical Significance')
+plt.ylabel('Number of Clusters')
+plt.title('Anova Results')
+plt.show()
+
+# compare slope and ttest clusters
+compare_sig = list(set(sig_clusters_slope) & set(sig_clusters_ttest))
+compare_insig = list(set(insig_clusters_slope) & set(insig_clusters_ttest))
+print(f"{len(compare_sig) + len(compare_insig)}/{len(clusters_to_analyze)} clusters have consistent results in both slope and t-test.")
+
+# compare slope and anova clusters
+compare_sig = list(set(sig_clusters_slope) & set(sig_clusters_anova))
+compare_insig = list(set(insig_clusters_slope) & set(insig_clusters_anova))
+print(f"{len(compare_sig) + len(compare_insig)}/{len(clusters_to_analyze)} clusters have consistent results in both slope and anova.")
+
+# compare ttest and anova clusters
+compare_sig = list(set(sig_clusters_ttest) & set(sig_clusters_anova))
+compare_insig = list(set(insig_clusters_ttest) & set(insig_clusters_anova))
+print(f"{len(compare_sig) + len(compare_insig)}/{len(clusters_to_analyze)} clusters have consistent results in both t-test and anova.")
+
+comparison_data = {
+    "Significance": ["Significant", "Significant", "Insignificant", "Insignificant"],
+    "PD": ["Stable", "Unstable", "Stable", "Unstable"],
+    "Count": [
+        len(set(sig_clusters_anova) & set(stable_pd)),
+        len(set(sig_clusters_anova) & set(unstable_pd)),
+        len(set(insig_clusters_anova) & set(stable_pd)),
+        len(set(insig_clusters_anova) & set(unstable_pd))
+    ]
+}
+
+comparison_df = pd.DataFrame(comparison_data)
+expanded_df = comparison_df.loc[comparison_df.index.repeat(comparison_df["Count"])].drop(columns="Count")
+
+def show_counts(key):
+    # Filter the dataframe to match the current box categories
+    match_condition = (expanded_df['Significance'] == key[0]) & (expanded_df['PD'] == key[1])
+    count = len(expanded_df[match_condition])
+    
+    # Return what text you want inside the box
+    return f"{count}"
+
+fig, ax = plt.subplots(figsize=(8, 6))
+mosaic(
+    expanded_df,
+    ['Significance', 'PD'], 
+    labelizer=show_counts, 
+    ax=ax, 
+    title='Anova Significance vs PD Stability'
+    )
+
+for text in ax.texts:
+    text.set_fontsize(14)
+
+ax.set_xlabel('Anova Significance', fontsize=16)
+ax.set_ylabel('PD Stability', fontsize=16)
+plt.show()
+#%% Pie charts
+# pie charts
+
+plt.pie(
+    [len(sig_clusters_slope), len(insig_clusters_slope)], 
+    labels=['Significant', 'Insignificant'],
+    # autopct=lambda pct: f'{int(pct/100.*(len(sig_clusters_slope) + len(insig_clusters_slope)))}'
+    )
+
+plt.title('Slope Results')
+plt.savefig(os.path.join(FIG_FOLDER, 'pie', f'[braz]_pie_chart_slope.svg'))
+plt.show()
+
+plt.pie(
+    [len(sig_clusters_anova), len(insig_clusters_anova)], 
+    labels=['Significant', 'Insignificant'],
+    # autopct=lambda pct: f'{int(pct/100.*(len(sig_clusters_anova) + len(insig_clusters_anova)))}'
+    )
+
+plt.title('ANOVA Results')
+plt.savefig(os.path.join(FIG_FOLDER, 'pie', f'[braz]_pie_chart_anova.svg'))
+plt.show()
+
+#%% Inspect Slope
+regression_dict = dict(cluster=[], slope=[], p=[], r_squared=[])
+
+for c in clusters_to_analyze:
+    result = calc_cluster_slope(sfc_df = braz_sfc_df, cID = c)
+    regression_dict['cluster'].append(c)
+    regression_dict['slope'].append(result.slope)
+    regression_dict['p'].append(result.pvalue)
+    regression_dict['r_squared'].append(result.rvalue ** 2)
+
+regression_df = pd.DataFrame(regression_dict)
+
 #%% Calc cluster sfc similarity function
 # calc cluster sfc similarity function
 def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame = None, cID_1: int = None, cID_2: int = None):
@@ -455,23 +701,25 @@ def calc_cluster_sfc_similarity(subj: sri.Tracking = None, sfc_df: pd.DataFrame 
         sim_dict['total'] = (sim_dict['correlation'] + sim_dict['euclidean']) / 2
         return sim_dict
 
-#%% Make stability figures
-# Make stability figures
-cID_1, cID_2 = 2107, 2553
-# cID_1, cID_2 = 1096, 1098
+#%% Make figures
+# Make figures
 
-sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_1, cID_2 = cID_1)
-# sim_df = pd.DataFrame(sim_dict)
+############################ similarity matrix
+# cID_1, cID_2 = 2107, 2553
+# # cID_1, cID_2 = 1096, 1098
 
-plt.figure(figsize=(10, 6))
-sns.heatmap(sim_dict['total'], xticklabels=[1, 2, 3, 4, 5], yticklabels=[1, 2, 3, 4, 5], annot=True, cmap='Blues', vmin=0, vmax=1)
-plt.title("Delta Band SFC Similarities", fontsize=20)
-plt.xlabel(f"Tracked Session", fontsize=20)
-plt.ylabel(f"Tracked Session", fontsize=20)
-plt.xticks(fontsize=16)
-plt.yticks(fontsize=16)
-plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_1}_similarity.svg'))
-plt.show()
+# sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_1, cID_2 = cID_1)
+# # sim_df = pd.DataFrame(sim_dict)
+
+# plt.figure(figsize=(10, 6))
+# sns.heatmap(sim_dict['total'], xticklabels=[1, 2, 3, 4, 5], yticklabels=[1, 2, 3, 4, 5], annot=True, cmap='Blues', vmin=0, vmax=1)
+# plt.title("Delta Band SFC Similarities", fontsize=20)
+# plt.xlabel(f"Tracked Session", fontsize=20)
+# plt.ylabel(f"Tracked Session", fontsize=20)
+# plt.xticks(fontsize=16)
+# plt.yticks(fontsize=16)
+# plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_1}_similarity.svg'))
+# plt.show()
 
 # sim_dict = calc_cluster_sfc_similarity(sfc_df = braz_sfc_df, cID_1 = cID_2, cID_2 = cID_2)
 # # sim_df = pd.DataFrame(sim_dict)
@@ -495,6 +743,7 @@ plt.show()
 # plt.savefig(os.path.join(FIG_FOLDER, 'sim_matrix', f'[braz]_{cID_1}_{cID_2}_similarity.svg'))
 # plt.show()
 
+########################## violin plot
 # temp_sfc_df = braz_sfc_df[braz_sfc_df['wf_cluster_ID']==cID_2].sort_values(by='date')
 
 # plotting_df = pd.DataFrame(columns=['date_abs', 'coherence'])
@@ -525,44 +774,56 @@ plt.show()
 # plt.savefig(os.path.join(FIG_FOLDER, 'violin', f'[braz]_{cID_2}_violin.svg'))
 # plt.show()
 
+######################### frequency band line plot
 f_bands = ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
 c_f_bands = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
 
-plt.figure(figsize=(12,4))
+# plt.figure(figsize=(12,4))
 
-for i in range(len(f_bands)):
-    x = np.arange(braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'].shape[0]) + 1
-    y = braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'][:,i]
-    plt.plot(x, y, color=c_f_bands[i], label=f'{f_bands[i]}')
-    y_mean = np.mean(y[~np.isnan(y)])
-    plt.axhline(y=y_mean, color=c_f_bands[i], linestyle='--')
-    if i == 0:
-        plt.text(plt.xlim()[1], y_mean, s=f'{y_mean:.2f}', color = c_f_bands[i], va='bottom', ha='right')
+# for i in range(len(f_bands)):
+#     x = np.arange(braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'].shape[0]) + 1
+#     y = braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'][:,i]
+#     plt.plot(x, y, color=c_f_bands[i], label=f'{f_bands[i]}')
+#     y_mean = np.mean(y[~np.isnan(y)])
+#     plt.axhline(y=y_mean, color=c_f_bands[i], linestyle='--')
+#     if i == 0:
+#         plt.text(plt.xlim()[1], y_mean, s=f'{y_mean:.2f}', color = c_f_bands[i], va='bottom', ha='right')
     
-plt.ylim(0, 0.6)
-plt.title('Log Coherence Over Trials')
-plt.xlabel('Trial Number')
-plt.ylabel('Log Coherence')
-plt.legend(ncols = 5)
-plt.savefig(os.path.join(FIG_FOLDER, 'line', f'[braz]_{cID_1}_line_1'))
-plt.show()
+# plt.ylim(0, 0.6)
+# plt.title('Log Coherence Over Trials')
+# plt.xlabel('Trial Number')
+# plt.ylabel('Log Coherence')
+# plt.legend(ncols = 5)
+# plt.savefig(os.path.join(FIG_FOLDER, 'line', f'[braz]_{cID_1}_line_1'))
+# plt.show()
 
 plt.figure(figsize=(12,8))
 
+######################### frequency band bar plot
+f_bands = ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+c_f_bands = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
+
+useful_sfc_df = braz_sfc_df[braz_sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
+clusters_to_analyze = useful_sfc_df['wf_cluster_ID'].unique()
+
 sfc_means = np.zeros(len(f_bands))
-sfc_std = np.zeros(len(f_bands))
+sfc_stds = np.zeros(len(f_bands))
 
 for i in range(len(f_bands)):
-    x = np.arange(braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'].shape[0]) + 1
-    y = braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID_1].iloc[0]['coherogram'][:,i]
-    sfc_means[i] = np.mean(y[~np.isnan(y)])
-    sfc_std[i] = np.std(y[~np.isnan(y)])
+    means = []
+    for cID in clusters_to_analyze:
+        y = braz_sfc_df[braz_sfc_df['wf_cluster_ID'] == cID].iloc[0]['coherogram'][:,i]
+        means.append(np.mean(y[~np.isnan(y)]))
     
+    sfc_means[i] = np.mean(means)
+    sfc_stds[i] = np.std(means)
+
 plt.bar(
     f_bands, 
     sfc_means, 
-    yerr=sfc_std,
-    error_kw=dict(ecolor="black", elinewidth=2, capsize=5, capthick=2, alpha=0.75)
+    yerr=sfc_stds,
+    error_kw=dict(ecolor="black", elinewidth=2, capsize=5, capthick=2, alpha=0.75), 
+    color = c_f_bands
     )
 # plt.ylim(0, 0.6)
 plt.title('Coherence by Frequency Band', fontsize=20)
@@ -570,7 +831,7 @@ plt.xticks(fontsize=16)
 plt.yticks(fontsize=16)
 plt.xlabel('Frequency Band', fontsize=20)
 plt.ylabel('Mean Coherence', fontsize=20)
-plt.savefig(os.path.join(FIG_FOLDER, 'bar', f'[braz]_{cID_1}_freq_bands_1'))
+plt.savefig(os.path.join(FIG_FOLDER, 'bar', f'[braz]_freq_band_bar.svg'))
 plt.show()
 
 #%% Analysis by direction
