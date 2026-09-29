@@ -5,14 +5,15 @@ import sys
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import colorsys
 import os
 import pandas as pd
 import seaborn as sns
 import pingouin
 from datetime import datetime
 from matplotlib.patches import Rectangle
-from matplotlib.collections import LineCollection
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.patches import Patch
 from statsmodels.graphics.mosaicplot import mosaic
 
 from scipy import cluster, stats
@@ -287,8 +288,8 @@ if braz is not None:
     braz.clusters = braz_clusters
     braz.useful_clusters = braz_useful_clusters
 
-#%% inspect clusters df
-# inspect clusters df
+#%% initialize things
+# initialize things
 # all clusters tuning significance are the same
 # all useful clusters are tuned
 stable_pd = []
@@ -303,6 +304,26 @@ for c in braz_useful_clusters.itertuples():
 print(f"Stable clusters: {len(stable_pd)}")
 print(f"Unstable clusters: {len(unstable_pd)}")
 
+useful_sfc_df = braz_sfc_df[braz_sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
+clusters_to_analyze = useful_sfc_df['wf_cluster_ID'].unique()
+
+f_band_ranges = [(1, 4), (5, 8), (9, 12), (13, 30), (31, 50)]
+f_bands = ['Delta', 'Theta', 'Alpha', 'Beta', 'Low Gamma']
+c_f_bands = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
+
+#%% Colors function
+# colors function
+def darken_color(color, factor=0.7):
+    """
+    Darken a color by scaling its brightness (V in HSV).
+    factor < 1 darkens, factor > 1 lightens.
+    """
+    r, g, b = mcolors.to_rgb(color)
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    l = max(0, min(1, l * factor))
+    return colorsys.hls_to_rgb(h, l, s)
+
+c_f_bands_dark = [darken_color(c) for c in c_f_bands]
 #%% calc cluster slopes function
 # calc cluster slopes function
 def calc_cluster_slope(sfc_df: pd.DataFrame, cID: int = None, f_band: int = 0):
@@ -474,11 +495,8 @@ def run_cluster_ttest(sfc_df: pd.DataFrame, cID, f_band: int = 0, check_var: boo
 
     return p_value
 
-#%% Run stat test functions
-# run stat test functions
-useful_sfc_df = braz_sfc_df[braz_sfc_df.groupby('wf_cluster_ID')['wf_cluster_ID'].transform('size') >= 3]
-clusters_to_analyze = useful_sfc_df['wf_cluster_ID'].unique()
-
+#%% slope
+# slope
 # run_cluster_ttest(sfc_df = useful_sfc_df, cID = np.random.choice(clusters_to_analyze))
 
 # var_p_values = []
@@ -487,30 +505,91 @@ clusters_to_analyze = useful_sfc_df['wf_cluster_ID'].unique()
 
 # print(f"{np.count_nonzero(np.array(var_p_values) > 0.05)}/{len(clusters_to_analyze)} clusters have equal variance.")
 
-slope_p_values = []
-slopes = []
-sig_clusters_slope = []
-insig_clusters_slope = []
-for c in clusters_to_analyze:
-    result = calc_cluster_slope(sfc_df = useful_sfc_df, cID = c)
-    slope_p_values.append(result.pvalue)
-    slopes.append(result.slope)
-    if result.pvalue < 0.05: 
-        sig_clusters_slope.append(c)
-    else:
-        insig_clusters_slope.append(c)
+n_slope_clusters = np.zeros((2, len(f_bands)))
 
+for f in range(len(f_bands)):
+    slope_p_values = []
+    slopes = []
+    sig_clusters_slope = []
+    insig_clusters_slope = []
+    for c in clusters_to_analyze:
+        result = calc_cluster_slope(sfc_df = useful_sfc_df, cID = c, f_band=f)
+        slope_p_values.append(result.pvalue)
+        slopes.append(result.slope)
+        if result.pvalue < 0.05: 
+            sig_clusters_slope.append(c)
+        else:
+            insig_clusters_slope.append(c)
+    n_slope_clusters[0, f] = len(insig_clusters_slope)
+    n_slope_clusters[1, f] = len(sig_clusters_slope)
 
-print(f"{np.count_nonzero(np.array(slope_p_values) < 0.05)}/{len(clusters_to_analyze)} clusters are statistically significant.")
-plt.bar(x = ['Significant', 'Insignificant'], height = [np.count_nonzero(np.array(slope_p_values) < 0.05), np.count_nonzero(np.array(slope_p_values) >= 0.05)])
-plt.xlabel('Statistical Significance')
-plt.ylabel('Number of Clusters')
-plt.title('Slope Results')
+x = np.arange(len(f_bands))
+width=0.35
+
+fig, ax = plt.subplots(figsize=(7, 5))
+ax.bar(x - width/2, n_slope_clusters[0, :], width, color=c_f_bands, label='Left')
+ax.bar(x + width/2, n_slope_clusters[1, :], width, color=c_f_bands_dark, label='Right')
+
+# print(f"{np.count_nonzero(np.array(slope_p_values) < 0.05)}/{len(clusters_to_analyze)} clusters are statistically significant.")
+# plt.bar(x = ['Significant', 'Insignificant'], height = [np.count_nonzero(np.array(slope_p_values) < 0.05), np.count_nonzero(np.array(slope_p_values) >= 0.05)])
+ax.set_xticks(x)
+ax.set_xticklabels(f_bands)
+legend_elements = [
+    Patch(facecolor='lightgray', edgecolor='black', label='Not significant (p ≥ 0.05)'),
+    Patch(facecolor='dimgray', edgecolor='black', label='Significant (p < 0.05)')
+]
+ax.legend(handles=legend_elements, loc='upper right')
+ax.set_xlabel('Frequency Band')
+ax.set_ylabel('Number of Neurons')
+ax.set_title('Slope Significance by Frequency Band')
+plt.tight_layout()
+plt.savefig(os.path.join(FIG_FOLDER, 'bar', 'slope_sig.svg'))
+plt.show()
+#%% anova
+# anova
+n_anova_clusters = np.zeros((2, len(f_bands)))
+
+for f in range(len(f_bands)): 
+    anova_p_values = []
+    sig_clusters_anova = []
+    insig_clusters_anova = []
+    for c in clusters_to_analyze:
+        p_val = run_cluster_anova(sfc_df = useful_sfc_df, cID = c, f_band=f, check_var = False)
+        anova_p_values.append(p_val)
+        if p_val < 0.05: 
+            sig_clusters_anova.append(c)
+        else:
+            insig_clusters_anova.append(c)
+    n_anova_clusters[0, f] = len(insig_clusters_anova)
+    n_anova_clusters[1, f] = len(sig_clusters_anova)
+
+# print(f"{np.count_nonzero(np.array(anova_p_values) < 0.05)}/{len(clusters_to_analyze)} clusters are statistically significant.")
+# plt.bar(x = ['Significant', 'Insignificant'], height = [np.count_nonzero(np.array(anova_p_values) < 0.05), np.count_nonzero(np.array(anova_p_values) >= 0.05)])
+
+x = np.arange(len(f_bands))
+width=0.35
+
+fig, ax = plt.subplots(figsize=(7, 5))
+ax.bar(x - width/2, n_anova_clusters[0, :], width, color=c_f_bands, label='Left')
+ax.bar(x + width/2, n_anova_clusters[1, :], width, color=c_f_bands_dark, label='Right')
+
+ax.set_xticks(x)
+ax.set_xticklabels(f_bands)
+legend_elements = [
+    Patch(facecolor='lightgray', edgecolor='black', label='Not significant (p ≥ 0.05)'),
+    Patch(facecolor='dimgray', edgecolor='black', label='Significant (p < 0.05)')
+]
+
+ax.legend(handles=legend_elements, loc='upper right')
+ax.set_xlabel('Frequency Band')
+ax.set_ylabel('Number of Neurons')
+ax.set_title('ANOVA Significance by Frequency Band')
+plt.tight_layout()
+plt.savefig(os.path.join(FIG_FOLDER, 'bar', 'anova_sig.svg'))
 plt.show()
 
-compare_sig = list(set(sig_clusters_slope) & set(unstable_pd))
-compare_insig = list(set(insig_clusters_slope) & set(stable_pd))
-print(f"{len(compare_sig)}/{len(clusters_to_analyze)} clusters are significant in both slope and unstable.")
+#%% ttests
+# ttests
 
 ttest_p_values = []
 sig_clusters_ttest = []
@@ -531,76 +610,6 @@ plt.ylabel('Number of Clusters')
 plt.title('T-Test Results')
 plt.show()
 
-anova_p_values = []
-sig_clusters_anova = []
-insig_clusters_anova = []
-for c in clusters_to_analyze:
-    p_val = run_cluster_anova(sfc_df = useful_sfc_df, cID = c, check_var = False)
-    anova_p_values.append(p_val)
-    if p_val < 0.05: 
-        sig_clusters_anova.append(c)
-    else:
-        insig_clusters_anova.append(c)
-
-print(f"{np.count_nonzero(np.array(anova_p_values) < 0.05)}/{len(clusters_to_analyze)} clusters are statistically significant.")
-plt.bar(x = ['Significant', 'Insignificant'], height = [np.count_nonzero(np.array(anova_p_values) < 0.05), np.count_nonzero(np.array(anova_p_values) >= 0.05)])
-plt.xlabel('Statistical Significance')
-plt.ylabel('Number of Clusters')
-plt.title('Anova Results')
-plt.show()
-
-# compare slope and ttest clusters
-compare_sig = list(set(sig_clusters_slope) & set(sig_clusters_ttest))
-compare_insig = list(set(insig_clusters_slope) & set(insig_clusters_ttest))
-print(f"{len(compare_sig) + len(compare_insig)}/{len(clusters_to_analyze)} clusters have consistent results in both slope and t-test.")
-
-# compare slope and anova clusters
-compare_sig = list(set(sig_clusters_slope) & set(sig_clusters_anova))
-compare_insig = list(set(insig_clusters_slope) & set(insig_clusters_anova))
-print(f"{len(compare_sig) + len(compare_insig)}/{len(clusters_to_analyze)} clusters have consistent results in both slope and anova.")
-
-# compare ttest and anova clusters
-compare_sig = list(set(sig_clusters_ttest) & set(sig_clusters_anova))
-compare_insig = list(set(insig_clusters_ttest) & set(insig_clusters_anova))
-print(f"{len(compare_sig) + len(compare_insig)}/{len(clusters_to_analyze)} clusters have consistent results in both t-test and anova.")
-
-comparison_data = {
-    "Significance": ["Significant", "Significant", "Insignificant", "Insignificant"],
-    "PD": ["Stable", "Unstable", "Stable", "Unstable"],
-    "Count": [
-        len(set(sig_clusters_anova) & set(stable_pd)),
-        len(set(sig_clusters_anova) & set(unstable_pd)),
-        len(set(insig_clusters_anova) & set(stable_pd)),
-        len(set(insig_clusters_anova) & set(unstable_pd))
-    ]
-}
-
-comparison_df = pd.DataFrame(comparison_data)
-expanded_df = comparison_df.loc[comparison_df.index.repeat(comparison_df["Count"])].drop(columns="Count")
-
-def show_counts(key):
-    # Filter the dataframe to match the current box categories
-    match_condition = (expanded_df['Significance'] == key[0]) & (expanded_df['PD'] == key[1])
-    count = len(expanded_df[match_condition])
-    
-    # Return what text you want inside the box
-    return f"{count}"
-
-fig, ax = plt.subplots(figsize=(8, 6))
-mosaic(
-    expanded_df,
-    ['Significance', 'PD'], 
-    labelizer=show_counts, 
-    ax=ax, 
-    title='Anova Significance vs PD Stability'
-    )
-
-for text in ax.texts:
-    text.set_fontsize(14)
-
-ax.set_xlabel('Anova Significance', fontsize=16)
-ax.set_ylabel('PD Stability', fontsize=16)
-plt.show()
 #%% Pie charts
 # pie charts
 
@@ -628,7 +637,7 @@ plt.show()
 regression_dict = dict(cluster=[], slope=[], p=[], r_squared=[])
 
 for c in clusters_to_analyze:
-    result = calc_cluster_slope(sfc_df = braz_sfc_df, cID = c)
+    result = calc_cluster_slope(sfc_df = braz_sfc_df, cID = c, f_band=4)
     regression_dict['cluster'].append(c)
     regression_dict['slope'].append(result.slope)
     regression_dict['p'].append(result.pvalue)
