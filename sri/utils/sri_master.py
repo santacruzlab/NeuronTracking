@@ -41,8 +41,8 @@ NSX_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'blackrock')
 NS_FOLDER = os.path.join(BMI_FOLDER, 'riglib', 'ripple', 'pyns', 'pyns')
 FIG_FOLDER = os.path.join(PROJECT_FOLDER, 'plots')
 
-sys.path.insert(0,BMI_FOLDER)
-sys.path.insert(0,NS_FOLDER)
+sys.path.insert(0, BMI_FOLDER)
+sys.path.insert(0, NS_FOLDER)
 
 # os.chdir(BMI_FOLDER)
 from riglib.blackrock.brpylib import NsxFile
