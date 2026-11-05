@@ -44,51 +44,84 @@ AIRPORT_SESSIONS, BRAZOS_SESSIONS = load_sessions()
 
 print(f"Loaded {len(AIRPORT_SESSIONS)} airport sessions and {len(BRAZOS_SESSIONS)} brazos sessions from CSV.")
 
+AIRPORT_SESSIONS_1 = []
+AIRPORT_SESSIONS_2 = []
+AIRPORT_SESSIONS_NOT_FOUND = []
+AIRPORT_SESSIONS_OTHER_LOCATION = []
+
 for session in AIRPORT_SESSIONS:
-    found_path_ns5 = False
-    found_path_ns2 = False
-    found_path_nev = False
-    print(f"Airport session: {session} ********************************")
+    found_extensions = {".ns5": False, ".ns2": False, ".nev": False}
+    found_locations = set()
+    # print(f"Airport session: {session} ********************************")
     for path in [path_santacruz1, path_santacruz2, path_santacruz3]:
         file_prefix_ripple = os.path.join(path, "ripple", session)
-        if os.path.exists(file_prefix_ripple + '.ns5'):
-            found_path_ns5 = file_prefix_ripple + '.ns5'
-            print(f".ns5: found in {path}")
-        if os.path.exists(file_prefix_ripple + '.ns2'):
-            found_path_ns2 = file_prefix_ripple + '.ns2'
-            print(f".ns2: found in {path}")
-        if os.path.exists(file_prefix_ripple + '.nev'):
-            found_path_nev = file_prefix_ripple + '.nev'
-            print(f".nev: found in {path}")
-    if not found_path_ns5:
+        for extension in found_extensions:
+            if os.path.exists(file_prefix_ripple + extension):
+                found_extensions[extension] = True
+                found_locations.add(path)
+                # print(f"{extension}: found in {path}")
+
+    if not found_extensions[".ns5"]:
         print(f".ns5: NOT FOUND for session {session}")
-    if not found_path_ns2:
+    if not found_extensions[".ns2"]:
         print(f".ns2: NOT FOUND for session {session}")
-    if not found_path_nev:
+    if not found_extensions[".nev"]:
         print(f".nev: NOT FOUND for session {session}")
+
+    if not found_locations:
+        AIRPORT_SESSIONS_NOT_FOUND.append(session)
+        continue
+
+    if path_santacruz2 in found_locations:
+        AIRPORT_SESSIONS_1.append(session)
+    if path_santacruz1 in found_locations:
+        AIRPORT_SESSIONS_2.append(session)
+    if path_santacruz3 in found_locations:
+        AIRPORT_SESSIONS_OTHER_LOCATION.append(session)
+    if len(found_locations) > 1:
+        print(f"MIXED LOCATIONS for {session}: {', '.join(sorted(found_locations))}")
+    if path_santacruz3 in found_locations and not (
+        path_santacruz1 in found_locations or path_santacruz2 in found_locations
+    ):
+        print(f"No Airport session group location found for {session}: {path_santacruz3}")
+
+BRAZOS_SESSIONS_1 = []
+BRAZOS_SESSIONS_2 = []
+BRAZOS_SESSIONS_3 = []
+BRAZOS_SESSIONS_NOT_FOUND = []
 
 for session in BRAZOS_SESSIONS:
-    found_path_ns5 = False
-    found_path_ns2 = False
-    found_path_nev = False
-    print(f"Brazos session: {session} ********************************")
+    found_extensions = {".ns5": False, ".ns2": False, ".nev": False}
+    found_locations = set()
+    # print(f"Brazos session: {session} ********************************")
     for path in [path_santacruz1, path_santacruz2, path_santacruz3]:
         file_prefix_ripple = os.path.join(path, "ripple", session)
-        if os.path.exists(file_prefix_ripple + '.ns5'):
-            found_path_ns5 = file_prefix_ripple + '.ns5'
-            print(f".ns5: found in {path}")
-        if os.path.exists(file_prefix_ripple + '.ns2'):
-            found_path_ns2 = file_prefix_ripple + '.ns2'
-            print(f".ns2: found in {path}")
-        if os.path.exists(file_prefix_ripple + '.nev'):
-            found_path_nev = file_prefix_ripple + '.nev'
-            print(f".nev: found in {path}")
-    if not found_path_ns5:
+        for extension in found_extensions:
+            if os.path.exists(file_prefix_ripple + extension):
+                found_extensions[extension] = True
+                found_locations.add(path)
+                # print(f"{extension}: found in {path}")
+
+    if not found_extensions[".ns5"]:
         print(f".ns5: NOT FOUND for session {session}")
-    if not found_path_ns2:
+    if not found_extensions[".ns2"]:
         print(f".ns2: NOT FOUND for session {session}")
-    if not found_path_nev:
+    if not found_extensions[".nev"]:
         print(f".nev: NOT FOUND for session {session}")
 
-AIRPORT_SESSIONS_1 = 
-AIRPORT_SESSIONS_2 = 
+    if not found_locations:
+        BRAZOS_SESSIONS_NOT_FOUND.append(session)
+        continue
+
+    if path_santacruz1 in found_locations:
+        BRAZOS_SESSIONS_1.append(session)
+    if path_santacruz2 in found_locations:
+        BRAZOS_SESSIONS_2.append(session)
+    if path_santacruz3 in found_locations:
+        BRAZOS_SESSIONS_3.append(session)
+    if len(found_locations) > 1:
+        print(f"MIXED LOCATIONS for {session}: {', '.join(sorted(found_locations))}")
+
+for session in AIRPORT_SESSIONS:
+    for path in [path_santacruz1, path_santacruz2, path_santacruz3]:
+        file_prefix_hdf = os.path.join(path, "hdf", session)
