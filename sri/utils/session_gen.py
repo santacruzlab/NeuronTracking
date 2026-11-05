@@ -1,6 +1,6 @@
+#%% Imports and define paths
 import csv
 import os
-
 
 CSV_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -13,7 +13,7 @@ path_santacruz1 = r"Y:\storage\rawdata"
 path_santacruz2 = r"X:\storage\rawdata"
 path_santacruz3 = r"W:\storage\rawdata"
 
-
+#%% Load sessions from CSV
 
 def load_sessions() -> tuple[list[str], list[str]]:
     sessions = {"airport": [], "brazos": []}
@@ -44,6 +44,7 @@ AIRPORT_SESSIONS, BRAZOS_SESSIONS = load_sessions()
 
 print(f"Loaded {len(AIRPORT_SESSIONS)} airport sessions and {len(BRAZOS_SESSIONS)} brazos sessions from CSV.")
 
+#%% Check for existence of ripple files and categorize sessions by location
 AIRPORT_SESSIONS_1 = []
 AIRPORT_SESSIONS_2 = []
 AIRPORT_SESSIONS_NOT_FOUND = []
@@ -122,6 +123,62 @@ for session in BRAZOS_SESSIONS:
     if len(found_locations) > 1:
         print(f"MIXED LOCATIONS for {session}: {', '.join(sorted(found_locations))}")
 
+#%% Check for existence of HDF files and categorize sessions by location
+
+AIRPORT_HDF_SESSIONS_1 = []
+AIRPORT_HDF_SESSIONS_2 = []
+AIRPORT_HDF_SESSIONS_OTHER_LOCATION = []
+AIRPORT_HDF_SESSIONS_NOT_FOUND = []
+
 for session in AIRPORT_SESSIONS:
+    found_locations = []
     for path in [path_santacruz1, path_santacruz2, path_santacruz3]:
-        file_prefix_hdf = os.path.join(path, "hdf", session)
+        hdf_file = os.path.join(path, "hdf", session + ".hdf")
+        if os.path.exists(hdf_file):
+            found_locations.append(path)
+
+    if not found_locations:
+        AIRPORT_HDF_SESSIONS_NOT_FOUND.append(session)
+        print(f"HDF NOT FOUND for Airport session {session}")
+        continue
+
+    if path_santacruz2 in found_locations:
+        AIRPORT_HDF_SESSIONS_1.append(session)
+    if path_santacruz1 in found_locations:
+        AIRPORT_HDF_SESSIONS_2.append(session)
+    if path_santacruz3 in found_locations:
+        AIRPORT_HDF_SESSIONS_OTHER_LOCATION.append(session)
+    if len(found_locations) > 1:
+        print(
+            f"MIXED HDF LOCATIONS for Airport session {session}: "
+            f"{', '.join(found_locations)}"
+        )
+
+BRAZOS_HDF_SESSIONS_1 = []
+BRAZOS_HDF_SESSIONS_2 = []
+BRAZOS_HDF_SESSIONS_3 = []
+BRAZOS_HDF_SESSIONS_NOT_FOUND = []
+
+for session in BRAZOS_SESSIONS:
+    found_locations = []
+    for path in [path_santacruz1, path_santacruz2, path_santacruz3]:
+        hdf_file = os.path.join(path, "hdf", session + ".hdf")
+        if os.path.exists(hdf_file):
+            found_locations.append(path)
+
+    if not found_locations:
+        BRAZOS_HDF_SESSIONS_NOT_FOUND.append(session)
+        print(f"HDF NOT FOUND for Brazos session {session}")
+        continue
+
+    if path_santacruz1 in found_locations:
+        BRAZOS_HDF_SESSIONS_1.append(session)
+    if path_santacruz2 in found_locations:
+        BRAZOS_HDF_SESSIONS_2.append(session)
+    if path_santacruz3 in found_locations:
+        BRAZOS_HDF_SESSIONS_3.append(session)
+    if len(found_locations) > 1:
+        print(
+            f"MIXED HDF LOCATIONS for Brazos session {session}: "
+            f"{', '.join(found_locations)}"
+        )
