@@ -1,0 +1,26 @@
+{
+  "seed": 20261030,
+  "bootstrap": 2000,
+  "blocks": [
+    4,
+    8
+  ],
+  "baseline": "Last 128 valid successful non-clamped pert=0 block 1 trials; minimum 64 and all 8 directions",
+  "baseline_weighting": "Pooled trial mean, not equal direction weights; target counts exported",
+  "early": "Exact original first 1/2/3 target-balanced sets; invalid positions never replaced",
+  "sem": "Sample SD / sqrt(n); descriptive, assumes independent trials for precision interpretation",
+  "normalized_mean": "Early trial mean / same-session block 1 mean; SEM divided by the same baseline mean, conditional on baseline estimate",
+  "z_score": "(Block 2 duration - block 1 mean) / block 1 sample SD",
+  "ratio_uncertainty": "Independent circular block resampling of early and baseline trials; 4/8-trial sensitivity",
+  "limitations": [
+    "Adaptation, target effects and serial dependence contribute to variability",
+    "Very few early blocks make bootstrap intervals exploratory",
+    "With 8 early trials, block length 8 resamples have a constant early mean; that sensitivity cannot measure numerator uncertainty",
+    "Z-score SEM conditions on baseline mean and SD",
+    "Larger early windows also include more adaptation, not just more samples",
+    "Perturbation codes and rotation angles do not identify unrecorded settings",
+    "Metadata inventory reads current HDF; analysis CSVs must match those source files",
+    "Calendar trends reuse 5000-draw residual-block intervals of lengths 4/6; exploratory, no multiplicity correction",
+    "Rotation-adjusted trends assume a common slope across regimes confounded with chronology"
+  ]
+}

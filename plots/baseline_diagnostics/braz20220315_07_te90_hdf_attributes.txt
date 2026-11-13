@@ -1,0 +1,23 @@
+HDF source: C:\Users\hi2ad\OneDrive\Research\Santacruz\Spike-Field Coherance\BMI_3D\NeuronTracking\data\HDF\braz20220315_07_te90.hdf
+Attribute: /task._v_attrs.rot_angle_deg
+HDF value: 50.0 degrees
+
+Catalog source: scripts/sessions.py
+BRAZOS_SESSIONS[0]: braz20220315_07_te90
+BRAZOS_ROTATION[0]: 310 degrees
+Equivalent signed catalog angle: -50 degrees
+
+All user attributes on /task:
+assist_level = (0.0, 0.0)
+assist_level_time = 600.0
+cursor_color_adjust = blue
+hold_time = 0.2
+max_attempts = 10
+premove_time = 0.1
+reset = 0
+reward_time = 0.7
+rot_angle_deg = 50.0
+session_length = 0.0
+target_radius = 2.0
+timeout_time = 10.0
+window_size = (3840, 1080)

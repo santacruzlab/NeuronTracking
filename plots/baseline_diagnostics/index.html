@@ -1,0 +1,81 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Baseline diagnostics</title>
+<style>body{font:16px system-ui;max-width:1200px;margin:32px auto;padding:16px}img{width:100%}td,th{padding:8px;text-align:right}p{line-height:1.5}</style>
+<h1>Trial-count and baseline diagnostics</h1>
+<p>Compare 8, 16 and 24 original rewarded trials in block 2. Baseline: last 128 valid, unperturbed, non-clamped successes in block 1 (minimum 64, all eight directions). Ratios above 1 and z-scores above 0 indicate slower performance than the session baseline.</p>
+<h2>Precision on the same sessions across all three windows</h2>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>monkey</th>
+      <th>window_trials</th>
+      <th>n_sessions</th>
+      <th>median_relative_sem</th>
+      <th>median_cv</th>
+      <th>median_ratio</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>airp</td>
+      <td>8</td>
+      <td>61</td>
+      <td>0.1116</td>
+      <td>0.3157</td>
+      <td>1.5940</td>
+    </tr>
+    <tr>
+      <td>airp</td>
+      <td>16</td>
+      <td>61</td>
+      <td>0.0803</td>
+      <td>0.3212</td>
+      <td>1.4938</td>
+    </tr>
+    <tr>
+      <td>airp</td>
+      <td>24</td>
+      <td>61</td>
+      <td>0.0661</td>
+      <td>0.3239</td>
+      <td>1.4807</td>
+    </tr>
+    <tr>
+      <td>braz</td>
+      <td>8</td>
+      <td>58</td>
+      <td>0.0936</td>
+      <td>0.2648</td>
+      <td>1.5170</td>
+    </tr>
+    <tr>
+      <td>braz</td>
+      <td>16</td>
+      <td>58</td>
+      <td>0.0669</td>
+      <td>0.2676</td>
+      <td>1.3928</td>
+    </tr>
+    <tr>
+      <td>braz</td>
+      <td>24</td>
+      <td>58</td>
+      <td>0.0534</td>
+      <td>0.2615</td>
+      <td>1.3452</td>
+    </tr>
+  </tbody>
+</table>
+<p>Trial SEM is descriptive: adaptation, target differences and dependence contribute to variability. Increasing the window changes the adaptation period as well as the number of observations. These checks cannot establish that trial count causes an animal difference.</p>
+<h2>mean_s</h2><a href="mean_s.pdf">Download PDF</a><img src="mean_s.png" alt="mean_s by animal and early window">
+<h2>normalized_mean</h2><a href="normalized_mean.pdf">Download PDF</a><img src="normalized_mean.png" alt="normalized_mean by animal and early window">
+<h2>ratio</h2><a href="ratio.pdf">Download PDF</a><img src="ratio.png" alt="ratio by animal and early window">
+<h2>z_mean</h2><a href="z_mean.pdf">Download PDF</a><img src="z_mean.png" alt="z_mean by animal and early window">
+<h2>variance_s2</h2><a href="variance_s2.pdf">Download PDF</a><img src="variance_s2.png" alt="variance_s2 by animal and early window">
+<h2>relative_sem</h2><a href="relative_sem.pdf">Download PDF</a><img src="relative_sem.png" alt="relative_sem by animal and early window">
+<h2>cv</h2><a href="cv.pdf">Download PDF</a><img src="cv.png" alt="cv by animal and early window">
+<h2>Methods and limitations</h2>
+<p>Normalized mean bars are trial SEM divided by the same session baseline mean. They condition on the estimated baseline; the separate ratio plot also includes baseline uncertainty.</p>
+<p>Ratio bars show 95% percentile intervals using independent circular four-trial block resamples of early and baseline trials. Eight-trial block sensitivity is in the CSV. At an eight-trial window, eight-trial blocks cannot estimate numerator uncertainty. Z-score SEM holds the estimated baseline mean and SD fixed. Baseline means pool trials; direction counts are exported to reveal unequal target representation.</p>
+<p>Colors identify HDF rotations; the black cross marks the disputed first braz session. Calendar trend CSVs exclude it except in an explicit sensitivity model. Trends are exploratory and assume a common slope when adjusting for rotations that vary with chronology.</p>
+<p>The metadata inventory covers all HDF nodes, table fields, and relevant attributes. The perturbation table samples recorded attempt anchors, not every task row. A binary pert code does not identify five perturbation types. Local filename searches cover the repository data directory; external behavior logs remain unverified.</p>
+<p><a href="session_diagnostics.csv">Session data</a> · <a href="exploratory_calendar_trends.csv">Exploratory slopes and intervals</a> · <a href="hdf_metadata_inventory.csv">HDF inventory</a> · <a href="analysis_settings.json">Full settings</a></p></html>
