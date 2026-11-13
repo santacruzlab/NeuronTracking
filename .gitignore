@@ -10,3 +10,15 @@
 *.png
 *.pkl
 *.svg
+
+# Local environments and reproducible generated files
+.conda/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+/data/
+/plots/*
+!/plots/README.md
