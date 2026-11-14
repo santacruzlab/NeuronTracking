@@ -16,6 +16,7 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -82,9 +83,10 @@ def main():
                 aic = dict(const=chi_c + 2, line=chi_l + 4, exp=chi_e + 6)
                 best = min(aic, key=aic.get)
                 grid = np.linspace(0, x.max(), 200)
-                ax.plot(d0 + grid, c + a * np.exp(-grid / tau), color=COLORS[rot], lw=3,
-                        ls="-" if best == "exp" else ":")
-                ax.plot(d0 + grid, b0 + b1 * grid, color=COLORS[rot], lw=1, ls="--", alpha=0.7)
+                # Both fits are drawn for every run, whichever wins by AIC.
+                ax.plot(d0 + grid, c + a * np.exp(-grid / tau), color=COLORS[rot], lw=3, ls="-")
+                ax.plot(d0 + grid, b0 + b1 * grid, color=COLORS[rot], lw=2.2, ls=(0, (4, 2)),
+                        path_effects=[pe.withStroke(linewidth=3.6, foreground="black", alpha=0.5)])
                 rows.append(dict(monkey=monkey, window=win, rotation=rot, n_sessions=len(sub),
                                  first_day=d0, last_day=sub.days.max(), asymptote_c=c, amplitude_A=a,
                                  tau_days=tau, start_value=c + a, half_life_days=tau * np.log(2),
@@ -97,8 +99,8 @@ def main():
                 ax.set_ylabel("Mean duration / block 1 mean")
             if i == 0 and j == 0:
                 ax.legend(fontsize=7, ncol=2)
-    fig.suptitle("Exponential decay fitted separately per rotation run (solid = exp wins by AIC, "
-                 "dotted = constant or line fits as well/better; thin dashed = straight line)")
+    fig.suptitle("Fits per rotation run: solid = best exponential decay, dashed (dark outline) = straight line; "
+                 "AIC winner per run is in exp_per_rotation.csv")
     fig.tight_layout()
     fig.savefig(OUT / "exp_per_rotation.png", dpi=150)
     res = pd.DataFrame(rows)
